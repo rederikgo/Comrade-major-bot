@@ -1,0 +1,10 @@
+debug:
+    debug level: logging.INFO
+youtube:
+    client secrets file: 
+    credentials file: 
+discord:
+    bot token: 
+    watched channels: 
+        - 
+    target video channel: 
