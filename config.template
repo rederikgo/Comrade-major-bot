@@ -7,7 +7,7 @@ youtube:
     client secrets file: 
     credentials file: 
     eligible categories: 
-		- 10
+		- '10'
 discord:
     bot token: 
     utc time offset: 3
