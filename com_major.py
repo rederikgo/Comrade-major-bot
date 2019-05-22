@@ -81,7 +81,7 @@ except:
 discord_token = cfg['discord']['bot token']
 discord_watched_channels = cfg['discord']['watched channels']
 archive_channel_id = cfg['discord']['target video channel']
-eligible_video_categories = cfg['youtube']['eligible categories'].split(', ')
+eligible_video_categories = cfg['youtube']['eligible categories']
 utc_time_offset = cfg['discord']['utc time offset']
 command_prefix = cfg['bot']['command prefix']
 ok_reply = cfg['bot']['ok reply']

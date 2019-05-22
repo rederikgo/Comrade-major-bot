@@ -6,8 +6,8 @@ bot:
 youtube:
     client secrets file: 
     credentials file: 
-    # Eligible categories are comma + space separated (will be split to list)
-    eligible categories: 10, 24, 33
+    eligible categories: 
+		- 10
 discord:
     bot token: 
     utc time offset: 3
