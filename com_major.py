@@ -134,7 +134,7 @@ async def archive(ctx, depth):
 
     # Get archive
     archive_channel = client.get_channel(archive_channel_id)
-    archive_history = await archive_channel.history().flatten()
+    archive_history = await archive_channel.history(limit=10000).flatten()
     archive_history_content = [message.content for message in archive_history]
     logger.debug(f'Loaded {len(archive_history_content)} messages from archive')
 
