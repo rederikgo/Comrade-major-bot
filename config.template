@@ -1,10 +1,12 @@
 debug:
-    debug level: logging.INFO
+    debug level: DEBUG
 youtube:
     client secrets file: 
     credentials file: 
+    eligible categories: 10, 24, 33
 discord:
     bot token: 
+    utc time offset: 3
     watched channels: 
         - 
     target video channel: 
