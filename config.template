@@ -1,8 +1,12 @@
 debug:
     debug level: DEBUG
+bot:
+    command prefix: '$'
+    ok reply: 'Done'
 youtube:
     client secrets file: 
     credentials file: 
+    # Eligible categories are comma + space separated (will be split to list)
     eligible categories: 10, 24, 33
 discord:
     bot token: 
