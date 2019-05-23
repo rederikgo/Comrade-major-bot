@@ -9,32 +9,26 @@ import yaml
 
 from youtube import YoutubePlaylists
 
-# Check if the message is a youtube link
-def is_link(message):
-    if 'www.youtube.com/watch' in message:
-        return True
 
-# Check if video category is eligible
-def is_eligible_category(link):
-    # Get video id
-    logger.debug(f'Parsing link {link}')
+# Check if the message is a link to eligible service
+def is_link(content):
+    if 'youtube.com/watch' in content:
+        return 'youtube'
+    if 'youtu.be/' in content:
+        return 'youtube'
+    if 'vimeo.com/' in content:
+        return 'vimeo'
+
+
+# Extract only (first) eligible link from the the message
+def clean_link(content):
     try:
-        youtube_query = urllib.parse.urlparse(link)[4]
-        video_id = urllib.parse.parse_qs(youtube_query)['v'][0]
+        for word in content.split():
+            if is_link(word):
+                return word
     except:
-        logger.error(f'Error parsing {link}')
+        logger.error(f'Error extracting link from {content}')
 
-    # Get video category from video info
-    video_info = youtube.get_video_info(video_id)
-    try:
-        video_category = video_info['items'][0]['snippet']['categoryId']
-    except:
-        logger.error(f'Error checking category {link}')
-
-    if video_category in eligible_video_categories:
-        return True
-    else:
-        logger.info(f'Video rejected (wrong category): {link}')
 
 # Copy video to archive channel
 async def archive_video(message):
@@ -42,8 +36,54 @@ async def archive_video(message):
     message_time = message.created_at + timedelta(hours=utc_time_offset)
     time_posted = message_time.strftime('%Y-%m-%d %H:%M')
     await channel.send(f"{message.author.name} at {time_posted}:")
-    await channel.send(message.content)
-    logger.debug(f'Video archived: {message.content}')
+    await channel.send(clean_link(message.content))
+    logger.info(f'Video archived: {message.content}')
+
+
+# Process youtube
+async def process_youtube(message):
+    # Extract link from possible surrounding text
+    link = clean_link(message.content)
+    # Get youtube video id
+    video_id = get_id(link)
+    # Check if video category is eligible and archive
+    if is_eligible_category(video_id):
+        await archive_video(message)
+
+
+# Get youtube video id
+def get_id(link):
+    try:
+        if 'youtube.com/watch?' in link:
+            youtube_query = urllib.parse.urlparse(link).query
+            return urllib.parse.parse_qs(youtube_query)['v'][0]
+        elif 'youtu.be/' in link:
+            youtube_path = urllib.parse.urlparse(link).path
+            return youtube_path[1:]
+        else:
+            logger.error(f'Unknown url pattern at {link}')
+    except:
+        logger.error(f'Error getting video id from {link}')
+
+
+# Check if youtube video category is eligible
+def is_eligible_category(video_id):
+    # Get video category from video info
+    try:
+        video_info = youtube.get_video_info(video_id)
+        video_category = video_info['items'][0]['snippet']['categoryId']
+    except:
+        logger.error(f'Error checking category {video_id}')
+
+    if video_category in eligible_video_categories:
+        return True
+    else:
+        logger.info(f'Video rejected (wrong category): {video_id}')
+
+
+# Process vimeo
+async def process_vimeo(message):
+    await archive_video(message)
 
 
 # Main
@@ -88,6 +128,7 @@ ok_reply = cfg['bot']['ok reply']
 
 client = commands.Bot(command_prefix=command_prefix)
 
+
 @client.event
 async def on_ready():
     # Log status on connect
@@ -112,18 +153,24 @@ async def on_ready():
     #             message.content not in archive_history_content:
     #         await archive_video(message)
 
+
 @client.event
 async def on_message(message):
     if message.author == client.user:
         return
 
     # Check new message and archive if it is eligible music video
-    if is_link(message.content) and \
-        message.channel.id in discord_watched_channels and \
-        is_eligible_category(message.content):
-            await archive_video(message)
+    provider = is_link(message.content)
+    if provider and message.channel.id in discord_watched_channels:
+        if provider == 'youtube':
+            await process_youtube(message)
+        elif provider == 'vimeo':
+            await process_vimeo(message)
+        else:
+            logger.error('Unknown provider')
 
     await client.process_commands(message)
+
 
 @client.command()
 async def archive(ctx, depth):
@@ -146,6 +193,7 @@ async def archive(ctx, depth):
             await archive_video(message)
 
     await ctx.send(ok_reply)
+
 
 # WRYYYYY
 try:
