@@ -10,13 +10,38 @@ import yaml
 from youtube import YoutubePlaylists
 
 
+# Check message and call specific provider routine
+async def check_message(message, allow_copies=True):
+    # Check if the message is from a watched channel
+    if message.channel.id not in discord_watched_channels:
+        return
+
+    # Check if the message contains an eligible link and execute corresponding routine
+    provider = is_link(message.content)
+    if provider:
+        logger.debug(f'Detected video in {message.content}')
+        # Check if the link has been already archived (optional)
+        if allow_copies == False:
+            global archive_history_content
+            if clean_link(message.content) in archive_history_content:
+                logger.debug(f'Video from {message.content} rejected (already in the archive)')
+                return
+
+        if provider == 'youtube':
+            await process_youtube(message)
+        elif provider == 'vimeo':
+            await process_vimeo(message)
+        else:
+            logger.error(f'Unknown provider in {message.content}')
+
+
 # Check if the message is a link to eligible service
 def is_link(content):
     if 'youtube.com/watch' in content:
         return 'youtube'
-    if 'youtu.be/' in content:
+    elif 'youtu.be/' in content:
         return 'youtube'
-    if 'vimeo.com/' in content:
+    elif 'vimeo.com/' in content:
         return 'vimeo'
 
 
@@ -35,8 +60,10 @@ async def archive_video(message):
     channel = client.get_channel(archive_channel_id)
     message_time = message.created_at + timedelta(hours=utc_time_offset)
     time_posted = message_time.strftime('%Y-%m-%d %H:%M')
+    link = clean_link(message.content)
     await channel.send(f"{message.author.name} at {time_posted}:")
-    await channel.send(clean_link(message.content))
+    await channel.send(link)
+    await update_archive_content(mode='add', link=link)
     logger.info(f'Video archived: {message.content}')
 
 
@@ -69,6 +96,7 @@ def get_id(link):
 # Check if youtube video category is eligible
 def is_eligible_category(video_id):
     # Get video category from video info
+    video_category = ''
     try:
         video_info = youtube.get_video_info(video_id)
         video_category = video_info['items'][0]['snippet']['categoryId']
@@ -85,6 +113,25 @@ def is_eligible_category(video_id):
 async def process_vimeo(message):
     await archive_video(message)
 
+
+async def update_archive_content(mode, depth=10000, link=''):
+    # Load full archive from Discord
+    global archive_history_content
+    if mode == 'full':
+        try:
+            archive_channel = client.get_channel(archive_channel_id)
+            archive_history = await archive_channel.history(limit=depth).flatten()
+            archive_history_content = [message.content for message in archive_history]
+            logger.debug(f'Loaded {len(archive_history_content)} archive entities')
+        except:
+            logger.error(f'Failed to load archive from Discord')
+
+    # Add link to a archive_content list (we don't need to reload archive after each submission)
+    elif mode == 'add':
+        archive_history_content.append(link)
+
+    else:
+        logger.error('Unknown mode of archive update')
 
 # Main
 # Load config
@@ -139,37 +186,21 @@ async def on_ready():
     video_channel = client.get_channel(archive_channel_id)
     logger.info(f'Will copy videos to [{video_channel.name}] on [{video_channel.guild}]')
 
-    # Will leave this in case silent testing is required in future
-    # archive_channel = client.get_channel(archive_channel_id)
-    # archive_history = await archive_channel.history().flatten()
-    # archive_history_content = [message.content for message in archive_history]
-    #
-    # chan_id = 544615694470217728
-    # chan = client.get_channel(chan_id)
-    # hist = await chan.history(limit=100000, oldest_first=True).flatten()
-    # for message in hist:
-    #     if is_link(message.content) and \
-    #             is_eligible_category(message.content) and \
-    #             message.content not in archive_history_content:
-    #         await archive_video(message)
+    # Load messages from archive channel
+    await update_archive_content(mode='full')
 
 
 @client.event
 async def on_message(message):
+    # Re-enable commands
+    await client.process_commands(message)
+
+    # Ignore own messages
     if message.author == client.user:
         return
 
-    # Check new message and archive if it is eligible music video
-    provider = is_link(message.content)
-    if provider and message.channel.id in discord_watched_channels:
-        if provider == 'youtube':
-            await process_youtube(message)
-        elif provider == 'vimeo':
-            await process_vimeo(message)
-        else:
-            logger.error('Unknown provider')
-
-    await client.process_commands(message)
+    # Check the new message and archive if it is eligible music video
+    await check_message(message)
 
 
 @client.command()
@@ -179,18 +210,9 @@ async def archive(ctx, depth):
     ctx_history = await ctx.history(limit=int(depth), oldest_first=True).flatten()
     logger.debug(f'Loaded {len(ctx_history)} historic messages from context channel')
 
-    # Get archive
-    archive_channel = client.get_channel(archive_channel_id)
-    archive_history = await archive_channel.history(limit=10000).flatten()
-    archive_history_content = [message.content for message in archive_history]
-    logger.debug(f'Loaded {len(archive_history_content)} messages from archive')
-
     # Check all messages in channel and archive music videos which are not in the archive
     for message in ctx_history:
-        if is_link(message.content) and \
-                is_eligible_category(message.content) and \
-                message.content not in archive_history_content:
-            await archive_video(message)
+        await check_message(message, allow_copies=False)
 
     await ctx.send(ok_reply)
 
