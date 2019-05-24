@@ -165,13 +165,15 @@ except:
 
 
 # Init and configure discord bot
-discord_token = cfg['discord']['bot token']
-discord_watched_channels = cfg['discord']['watched channels']
-archive_channel_id = cfg['discord']['target video channel']
+discord_token = cfg['bot']['bot token']
+discord_watched_channels = cfg['bot']['watched channels']
+archive_channel_id = cfg['bot']['target video channel']
 eligible_video_categories = cfg['youtube']['eligible categories']
-utc_time_offset = cfg['discord']['utc time offset']
+utc_time_offset = cfg['bot']['utc time offset']
 command_prefix = cfg['bot']['command prefix']
 ok_reply = cfg['bot']['ok reply']
+bot_admins = cfg['bot']['admin users']
+allow_copies = cfg['bot']['allow copies in archive']
 
 client = commands.Bot(command_prefix=command_prefix)
 
@@ -200,7 +202,7 @@ async def on_message(message):
         return
 
     # Check the new message and archive if it is eligible music video
-    await check_message(message)
+    await check_message(message, allow_copies=allow_copies)
 
 
 @client.command()
@@ -213,6 +215,21 @@ async def archive(ctx, depth):
     # Check all messages in channel and archive music videos which are not in the archive
     for message in ctx_history:
         await check_message(message, allow_copies=False)
+
+    await ctx.send(ok_reply)
+
+
+@client.command()
+async def wipe_archive(ctx):
+    logger.info('Got wipe archive command')
+    if ctx.author.id not in bot_admins:
+        logger.info('Not an admin, rejected')
+    chan = client.get_channel(archive_channel_id)
+    hist = await chan.history(limit=10000).flatten()
+    for message in hist:
+        logger.info(f'Deleting message: {message.content}')
+        await message.delete()
+        await update_archive_content(mode='full')
 
     await ctx.send(ok_reply)
 

@@ -1,16 +1,18 @@
 debug:
     debug level: DEBUG
 bot:
-    command prefix: '$'
-    ok reply: 'Done'
-youtube:
-    client secrets file: 
-    credentials file: 
-    eligible categories: 
-		- '10'
-discord:
+    admin users:
+        - 
     bot token: 
-    utc time offset: 3
     watched channels: 
         - 
     target video channel: 
+    command prefix: '$'
+    ok reply: 'Done'
+    utc time offset: 3
+    allow copies in archive: True
+youtube:
+    client secrets file: 
+    credentials file: 
+    eligible categories:
+        - '10'
