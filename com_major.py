@@ -1,6 +1,7 @@
 from datetime import timedelta
 import logging
 import logging.handlers
+import re
 import urllib
 
 import discord
@@ -38,7 +39,7 @@ async def check_message(message, allow_copies=True):
 
     # Check if the message contains an eligible link and execute corresponding routine
     provider = is_link(message.content)
-    if provider:
+    if provider and provider != 'undefined link':
         logger.debug(f'Detected video in {message.content}')
         # Check if the link has been already archived (optional)
         if allow_copies == False:
@@ -51,11 +52,9 @@ async def check_message(message, allow_copies=True):
             await process_youtube(message)
         elif provider == 'vimeo':
             await process_vimeo(message)
-        else:
-            logger.error(f'Unknown provider in {message.content}')
 
 
-# Check if the message is a link to eligible service
+# Check if the message contains an (eligible) link
 def is_link(content):
     if 'youtube.com/watch' in content:
         return 'youtube'
@@ -63,15 +62,17 @@ def is_link(content):
         return 'youtube'
     elif 'vimeo.com/' in content:
         return 'vimeo'
+    # At least location + path should be present, eg. 'youtube.com/a'
+    elif re.findall(url_pattern, content):
+        return 'undefined link'
 
 
-# Extract only (first) eligible link from the the message
+# Extract first eligible link from the the message
 def clean_link(content):
-    try:
-        for word in content.split():
-            if is_link(word):
-                return word
-    except:
+    link = re.findall(url_pattern, content)
+    if link:
+        return link[0]
+    else:
         logger.error(f'Error extracting link from {content}')
 
 
@@ -176,6 +177,7 @@ ok_reply = cfg['bot']['ok reply']
 bot_admins = cfg['bot']['admin users']
 allow_copies = cfg['bot']['allow copies in archive']
 archive_depth = cfg['bot']['archive depth']
+url_pattern = cfg['bot']['url pattern']
 
 client = commands.Bot(command_prefix=command_prefix)
 
@@ -207,6 +209,7 @@ async def on_message(message):
     await check_message(message, allow_copies=allow_copies)
 
 
+# Scan X last messages and archive eligible, which have not been archived before
 @client.command()
 async def archive(ctx, depth=10000):
     # Get channel history
@@ -221,6 +224,7 @@ async def archive(ctx, depth=10000):
     await ctx.send(ok_reply)
 
 
+# Wipe all messages from the archive channel
 @client.command()
 async def wipe_archive(ctx):
     logger.info('Got wipe archive command')
@@ -234,6 +238,23 @@ async def wipe_archive(ctx):
         await update_archive_content(mode='full', depth=archive_depth)
 
     await ctx.send(ok_reply)
+
+
+# Scan last messages and force-archive all urls
+@client.command()
+async def force(ctx, depth):
+    logger.info('Got force command')
+    if depth == 'last':
+        depth = 1
+    if ctx.channel.id not in discord_watched_channels:
+        logger.info('Channel is not watched, rejected')
+        return
+
+    ctx_history = await ctx.history(limit=int(depth)+1).flatten()
+    for message in ctx_history:
+        if is_link(message.content):
+            logger.debug(f'Force-archiving message {message.content}')
+            await archive_video(message)
 
 
 # WRYYYYY

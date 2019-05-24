@@ -11,6 +11,8 @@ bot:
     ok reply: 'Done'
     utc time offset: 3
     allow copies in archive: True
+    archive depth: 10000
+    url pattern: '(?:[http|ftp|https]+:\/\/)?[\w\-]+(?:(?:\.[\w-]+)+)(?:\/[\w\-=?%\$\&!#\+~\.]+)+'
 youtube:
     client secrets file: 
     credentials file: 
