@@ -10,6 +10,26 @@ import yaml
 from youtube import YoutubePlaylists
 
 
+async def update_archive_content(mode, depth=10000, link=''):
+    # Load full archive from Discord
+    global archive_history_content
+    if mode == 'full':
+        try:
+            archive_channel = client.get_channel(archive_channel_id)
+            archive_history = await archive_channel.history(limit=depth).flatten()
+            archive_history_content = [message.content for message in archive_history]
+            logger.debug(f'Loaded {len(archive_history_content)} archive entities')
+        except:
+            logger.error(f'Failed to load archive from Discord')
+
+    # Add link to a archive_content list (we don't need to reload archive after each submission)
+    elif mode == 'add':
+        archive_history_content.append(link)
+
+    else:
+        logger.error('Unknown mode of archive update')
+
+
 # Check message and call specific provider routine
 async def check_message(message, allow_copies=True):
     # Check if the message is from a watched channel
@@ -114,25 +134,6 @@ async def process_vimeo(message):
     await archive_video(message)
 
 
-async def update_archive_content(mode, depth=10000, link=''):
-    # Load full archive from Discord
-    global archive_history_content
-    if mode == 'full':
-        try:
-            archive_channel = client.get_channel(archive_channel_id)
-            archive_history = await archive_channel.history(limit=depth).flatten()
-            archive_history_content = [message.content for message in archive_history]
-            logger.debug(f'Loaded {len(archive_history_content)} archive entities')
-        except:
-            logger.error(f'Failed to load archive from Discord')
-
-    # Add link to a archive_content list (we don't need to reload archive after each submission)
-    elif mode == 'add':
-        archive_history_content.append(link)
-
-    else:
-        logger.error('Unknown mode of archive update')
-
 # Main
 # Load config
 with open('config.yaml', 'r') as configfile:
@@ -206,7 +207,7 @@ async def on_message(message):
 
 
 @client.command()
-async def archive(ctx, depth):
+async def archive(ctx, depth=10000):
     # Get channel history
     logger.debug('Got archive command')
     ctx_history = await ctx.history(limit=int(depth), oldest_first=True).flatten()
