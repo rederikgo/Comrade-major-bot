@@ -175,6 +175,7 @@ command_prefix = cfg['bot']['command prefix']
 ok_reply = cfg['bot']['ok reply']
 bot_admins = cfg['bot']['admin users']
 allow_copies = cfg['bot']['allow copies in archive']
+archive_depth = cfg['bot']['archive depth']
 
 client = commands.Bot(command_prefix=command_prefix)
 
@@ -190,7 +191,7 @@ async def on_ready():
     logger.info(f'Will copy videos to [{video_channel.name}] on [{video_channel.guild}]')
 
     # Load messages from archive channel
-    await update_archive_content(mode='full')
+    await update_archive_content(mode='full', depth=archive_depth)
 
 
 @client.event
@@ -226,11 +227,11 @@ async def wipe_archive(ctx):
     if ctx.author.id not in bot_admins:
         logger.info('Not an admin, rejected')
     chan = client.get_channel(archive_channel_id)
-    hist = await chan.history(limit=10000).flatten()
+    hist = await chan.history(limit=archive_depth).flatten()
     for message in hist:
         logger.info(f'Deleting message: {message.content}')
         await message.delete()
-        await update_archive_content(mode='full')
+        await update_archive_content(mode='full', depth=archive_depth)
 
     await ctx.send(ok_reply)
 
