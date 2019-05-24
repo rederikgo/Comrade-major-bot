@@ -5,6 +5,7 @@ import re
 import urllib
 
 import discord
+from discord.ext.commands import HelpCommand
 from discord.ext import commands
 import yaml
 
@@ -134,6 +135,18 @@ def is_eligible_category(video_id):
 async def process_vimeo(message):
     await archive_video(message)
 
+# Load custom help file 'help.txt'
+class custom_help(HelpCommand):
+    async def send_bot_help(self, mapping):
+        logger.info('Got help command')
+        try:
+            with open('help.txt', encoding='utf-8') as file:
+                help_text = file.read()
+        except:
+            logger.error('Error opening help file')
+
+        await self.context.send(help_text)
+
 
 # Main
 # Load config
@@ -179,8 +192,8 @@ allow_copies = cfg['bot']['allow copies in archive']
 archive_depth = cfg['bot']['archive depth']
 url_pattern = cfg['bot']['url pattern']
 
-client = commands.Bot(command_prefix=command_prefix)
-
+helpme = custom_help()
+client = commands.Bot(command_prefix=command_prefix, help_command=helpme)
 
 @client.event
 async def on_ready():
