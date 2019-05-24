@@ -1,3 +1,4 @@
+from collections import Counter
 from datetime import timedelta
 import logging
 import logging.handlers
@@ -135,6 +136,7 @@ def is_eligible_category(video_id):
 async def process_vimeo(message):
     await archive_video(message)
 
+
 # Load custom help file 'help.txt'
 class custom_help(HelpCommand):
     async def send_bot_help(self, mapping):
@@ -268,6 +270,29 @@ async def force(ctx, depth):
         if is_link(message.content):
             logger.debug(f'Force-archiving message {message.content}')
             await archive_video(message)
+
+
+# Post simple report (total links in archive and user contribution)
+@client.command()
+async def report(ctx):
+    logger.info('Got archive report command')
+    archive_channel = client.get_channel(archive_channel_id)
+    archive_messages = await archive_channel.history(limit=archive_depth).flatten()
+    posters = []
+    for message in archive_messages:
+        if message.author == client.user and not is_link(message.content):
+            poster = message.content.split()[0]
+            posters.append(poster)
+    poster_stats = Counter(posters)
+    max_value = max(poster_stats.values())
+    step = int(max_value/100) + 1
+    report=[]
+    report.append(f'Total: {len(posters)}')
+    for key in poster_stats:
+        pips = int(poster_stats[key]/step)
+        report.append(f'{key}: {"-"*pips} {poster_stats[key]}')
+    report_string = '\n'.join(report)
+    await ctx.send(report_string)
 
 
 # WRYYYYY
