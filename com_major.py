@@ -13,24 +13,26 @@ import yaml
 from youtube import YoutubePlaylists
 
 
-async def update_archive_content(mode, depth=10000, link=''):
+async def update_archive_content(depth=10000):
     # Load full archive from Discord
+    global archive_history_full
+    try:
+        archive_channel = client.get_channel(archive_channel_id)
+        archive_history_full = await archive_channel.history(limit=depth).flatten()
+    except:
+        logger.error(f'Failed to load archive from Discord')
+        return
+
+    # Get the list of messages
     global archive_history_content
-    if mode == 'full':
-        try:
-            archive_channel = client.get_channel(archive_channel_id)
-            archive_history = await archive_channel.history(limit=depth).flatten()
-            archive_history_content = [message.content for message in archive_history]
-            logger.debug(f'Loaded {len(archive_history_content)} archive entities')
-        except:
-            logger.error(f'Failed to load archive from Discord')
+    archive_history_content = [message.content for message in archive_history_full]
+    logger.debug(f'Loaded {len(archive_history_content)} archive entities')
 
-    # Add link to a archive_content list (we don't need to reload archive after each submission)
-    elif mode == 'add':
-        archive_history_content.append(link)
 
-    else:
-        logger.error('Unknown mode of archive update')
+# Add the message to the archive list manually (to avoid full reload of archive list)
+async def add_to_archive_content(link):
+    global archive_history_content
+    archive_history_content.append(link)
 
 
 # Check message and call specific provider routine
@@ -86,7 +88,7 @@ async def archive_video(message):
     link = clean_link(message.content)
     await channel.send(f"{message.author.name} at {time_posted}:")
     await channel.send(link)
-    await update_archive_content(mode='add', link=link)
+    await add_to_archive_content(link=link)
     logger.info(f'Video archived: {message.content}')
 
 
@@ -208,7 +210,7 @@ async def on_ready():
     logger.info(f'Will copy videos to [{video_channel.name}] on [{video_channel.guild}]')
 
     # Load messages from archive channel
-    await update_archive_content(mode='full', depth=archive_depth)
+    await update_archive_content(depth=archive_depth)
 
 
 @client.event
@@ -250,7 +252,7 @@ async def wipe_archive(ctx):
     for message in hist:
         logger.info(f'Deleting message: {message.content}')
         await message.delete()
-        await update_archive_content(mode='full', depth=archive_depth)
+    await update_archive_content(depth=archive_depth)
 
     await ctx.send(ok_reply)
 
