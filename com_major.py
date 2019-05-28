@@ -345,6 +345,11 @@ def format_members_list(posters):
         report.append(f'{key}:{" " * spaces} {"-" * pips} {poster_stats[key]}')
     return report
 
+
+@client.command()
+async def slap(ctx, target):
+    await ctx.send(f'{ctx.author.mention} slaps {target} around a bit with a large trout')
+
 # WRYYYYY
 try:
     client.run(discord_token)
