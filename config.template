@@ -13,6 +13,7 @@ bot:
     allow copies in archive: True
     archive depth: 10000
     url pattern: '(?:[http|ftp|https]+:\/\/)?[\w\-]+(?:(?:\.[\w-]+)+)(?:\/[\w\-=?%\$\&!#\+~\.]+)+'
+    max pips in report: 50
 youtube:
     client secrets file: 
     credentials file: 
