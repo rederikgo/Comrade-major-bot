@@ -196,6 +196,7 @@ bot_admins = cfg['bot']['admin users']
 allow_copies = cfg['bot']['allow copies in archive']
 archive_depth = cfg['bot']['archive depth']
 url_pattern = cfg['bot']['url pattern']
+max_pips = cfg['bot']['max pips in report']
 
 helpme = custom_help()
 client = commands.Bot(command_prefix=command_prefix, help_command=helpme)
@@ -336,7 +337,7 @@ def format_members_list(posters):
     poster_stats = Counter(posters)
     max_value = max(poster_stats.values())
     longest_name = max([len(x) for x in poster_stats.keys()])
-    step = int(max_value / 75) + 1
+    step = int(max_value / max_pips) + 1
     report = []
     for key in sorted(poster_stats):
         spaces = longest_name - len(key)
