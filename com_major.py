@@ -1,5 +1,6 @@
 from collections import Counter
 from datetime import timedelta
+from datetime import datetime
 import logging
 import logging.handlers
 import re
@@ -276,26 +277,72 @@ async def force(ctx, depth):
 
 # Post simple report (total links in archive and user contribution)
 @client.command()
-async def report(ctx):
+async def report(ctx, target='archive'):
     logger.info('Got archive report command')
-    archive_channel = client.get_channel(archive_channel_id)
-    archive_messages = await archive_channel.history(limit=archive_depth).flatten()
-    posters = []
-    for message in archive_messages:
-        if message.author == client.user and not is_link(message.content):
-            poster = message.content.split()[0]
-            posters.append(poster)
+
+    if target == 'archive':
+        archive_channel = client.get_channel(archive_channel_id)
+        archive_messages = await archive_channel.history(limit=archive_depth).flatten()
+        posters = []
+        for message in archive_messages:
+            if message.author == client.user and not is_link(message.content):
+                poster = message.content.split()[0]
+                posters.append(poster)
+        alive_delta = datetime.now() - archive_messages[-1].created_at
+
+        report = ['```']
+        report.append('Archive channel report:')
+        report.append('')
+        report.append(f'Created {alive_delta.days} days ago')
+        report.append(f'Total messages: {len(posters)}')
+        report.append('')
+        report.append('Posters:')
+        report += format_members_list(posters)
+        report.append('```')
+        report_string = '\n'.join(report)
+        await ctx.send(report_string)
+
+    elif target == 'this':
+        messages = await ctx.channel.history(limit=archive_depth).flatten()
+        posters = []
+        for message in messages:
+            if message.author != client.user:
+                posters.append(message.author.name)
+
+        if ctx.channel.id in discord_watched_channels:
+            channel_type = 'watched'
+        else:
+            channel_type = 'unwatched'
+        alive_delta = datetime.now() - messages[-1].created_at
+        days_alive = alive_delta.days + alive_delta.seconds / 60 / 60 / 24
+        average_messages = round(len(messages) / days_alive, 2)
+
+        report = ['```']
+        report.append(f'Current channel report:')
+        report.append('')
+        report.append(f'Created {int(days_alive)} days ago')
+        report.append(f'Total messages: {len(posters)}')
+        report.append(f'Average messages per day: {average_messages}')
+        report.append(f'Channel type: {channel_type}')
+        report.append('')
+        report.append('Posters:')
+        report += format_members_list(posters)
+        report.append('```')
+        report_string = '\n'.join(report)
+        await ctx.send(report_string)
+
+
+def format_members_list(posters):
     poster_stats = Counter(posters)
     max_value = max(poster_stats.values())
-    step = int(max_value/100) + 1
-    report=[]
-    report.append(f'Total: {len(posters)}')
-    for key in poster_stats:
-        pips = int(poster_stats[key]/step)
-        report.append(f'{key}: {"-"*pips} {poster_stats[key]}')
-    report_string = '\n'.join(report)
-    await ctx.send(report_string)
-
+    longest_name = max([len(x) for x in poster_stats.keys()])
+    step = int(max_value / 75) + 1
+    report = []
+    for key in sorted(poster_stats):
+        spaces = longest_name - len(key)
+        pips = max(1, int(poster_stats[key] / step))
+        report.append(f'{key}:{" " * spaces} {"-" * pips} {poster_stats[key]}')
+    return report
 
 # WRYYYYY
 try:
