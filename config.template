@@ -1,5 +1,8 @@
 debug:
     debug level: DEBUG
+	sentry dsn: ''
+    sentry appname: 'Comrade-major-bot'
+    sentry environment: ''
 bot:
     admin users:
         - 

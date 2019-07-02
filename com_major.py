@@ -9,6 +9,8 @@ import urllib
 import discord
 from discord.ext.commands import HelpCommand
 from discord.ext import commands
+from pythonjsonlogger import jsonlogger
+import sentry_sdk
 import yaml
 
 from youtube import YoutubePlaylists
@@ -158,10 +160,15 @@ class custom_help(HelpCommand):
 with open('config.yaml', 'r') as configfile:
     cfg = yaml.safe_load(configfile)
 
+# Setup sentry.io reporting
+sentry_dsn = cfg['debug']['sentry dsn']
+sentry_app_name = cfg['debug']['sentry appname']
+sentry_environment = cfg['debug']['sentry environment']
+sentry_sdk.init(sentry_dsn, release=sentry_app_name, environment=sentry_environment)
 
 # Setup logging
 logging_level = cfg['debug']['debug level']
-formatter = logging.Formatter('%(asctime)s: %(message)s')
+formatter = jsonlogger.JsonFormatter('%(asctime)s %(levelname)s: %(message)s')
 
 handler = logging.handlers.RotatingFileHandler('comrade.log', mode='a', maxBytes=10485760, backupCount=0, encoding='utf-8')
 handler.setLevel(logging_level)
