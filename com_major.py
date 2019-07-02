@@ -361,4 +361,4 @@ async def slap(ctx, target):
 try:
     client.run(discord_token)
 except:
-    logger.error('Failed to init discord bot', debug=True)
+    logger.error('Failed to init discord bot')
