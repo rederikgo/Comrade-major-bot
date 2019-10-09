@@ -1,9 +1,12 @@
 from collections import Counter
 from datetime import timedelta
 from datetime import datetime
+import asyncio
 import logging
 import logging.handlers
+import random
 import re
+import time
 import urllib
 
 import discord
@@ -14,7 +17,7 @@ import sentry_sdk
 import yaml
 
 from youtube import YoutubePlaylists
-
+from comrade_db import DB
 
 async def update_archive_content(depth=10000):
     # Load full archive from Discord
@@ -190,7 +193,6 @@ try:
 except:
     logger.error('Youtube connection error')
 
-
 # Init and configure discord bot
 discord_token = cfg['bot']['bot token']
 discord_watched_channels = cfg['bot']['watched channels']
@@ -204,6 +206,10 @@ allow_copies = cfg['bot']['allow copies in archive']
 archive_depth = cfg['bot']['archive depth']
 url_pattern = cfg['bot']['url pattern']
 max_pips = cfg['bot']['max pips in report']
+db_path = cfg['database']['path']
+db_init_script = cfg['database']['init_script']
+birthday_report_time = cfg['database']['birthday_report_time']
+check_frequency = cfg['database']['check_frequency']
 
 helpme = custom_help()
 client = commands.Bot(command_prefix=command_prefix, help_command=helpme)
@@ -357,8 +363,82 @@ def format_members_list(posters):
 async def slap(ctx, target):
     await ctx.send(f'{ctx.author.mention} slaps {target} around a bit with a large trout')
 
+
+# Check for birthdays
+async def report_birthdays():
+    await client.wait_until_ready()
+    while not client.is_closed():
+        db = DB(db_path, db_init_script)
+        for watched_channel in discord_watched_channels:
+            channel = client.get_channel(watched_channel)
+            birthdays = db.get_birthdays()
+            current_str_time = time.gmtime(time.time())
+            if current_str_time[3] >= birthday_report_time:
+                for birthday in birthdays:
+                    user_id = birthday[0]
+                    date = convert_to_structdate(birthday[1])
+                    last_reported = birthday[2]
+                    if not date:
+                        continue
+                    if last_reported == datetime.now().year:
+                        continue
+                    if date[1:3] == current_str_time[1:3]:
+                        await congrat(channel, user_id)
+                        db.mark_congrated(user_id, datetime.now().year)
+        await asyncio.sleep(check_frequency)
+
+
+async def congrat(channel, user_id):
+    db = DB(db_path, db_init_script)
+    congrats = [i[0] for i in db.get_congrats()]
+    message = random.choice(congrats)
+    user_name = get_user_mention(channel, user_id)
+    await channel.send(message.format(user_name=user_name))
+
+
+@client.command()
+async def set_birthday(ctx):
+    try:
+        target_user_id = ctx.message.mentions[0].id
+    except:
+        logger.error('Cant find mention in set_birthday command')
+        return
+    message = ctx.message.clean_content.split(' ')
+    date_raw = message[-1]
+    if not convert_to_structdate(date_raw):
+        return
+
+    db = DB(db_path, db_init_script)
+    members = db.get_members()
+    if target_user_id not in members:
+        db.add_member(target_user_id)
+        report_text = f'Added birthday date for {ctx.message.mentions[0].display_name}'
+    else:
+        report_text = f'Updated birthday date for {ctx.message.mentions[0].display_name}'
+    db.update_birthday(target_user_id, date_raw)
+    logger.info(report_text)
+    await ctx.send(report_text)
+
+
+def convert_to_structdate(date_raw):
+    try:
+        if len(date_raw.split('.')) == 3:
+            format = '%d.%m.%Y'
+        else:
+            format = '%d.%m'
+        return time.strptime(date_raw, format)
+    except:
+        logger.error('No date or wrong date format')
+        return
+
+def get_user_mention(channel, user_id):
+    for user in channel.members:
+        if user.id == user_id:
+            return user.mention
+
 # WRYYYYY
 try:
+    client.loop.create_task(report_birthdays())
     client.run(discord_token)
 except:
     logger.error('Failed to init discord bot')

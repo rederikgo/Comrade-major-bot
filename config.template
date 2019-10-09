@@ -22,3 +22,8 @@ youtube:
     credentials file: 
     eligible categories:
         - '10'
+database:
+    path: comrade.db
+    init_script: init.sql
+    birthday_report_time: 15
+    check_frequency: 3600

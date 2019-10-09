@@ -6,7 +6,8 @@ venv
 *.txt
 test*.py
 *.json
-*yaml
+*.yaml
+*.db
 
 # Allow
 !requirements.txt
