@@ -445,10 +445,11 @@ def get_user_mention(channel, user_id):
 
 # Send report on stored birthdays sorted by user name
 @client.command()
-async def show_birthdays(ctx):
+async def show_birthdays(ctx, sorting_key='name'):
+    # Get the list of current members with birthdays from the database
     db = DB(db_path, db_init_script)
     birthdays = db.get_birthdays()
-    members_list = [[member.id, member.name] for member in ctx.channel.members]
+    members_list = [[member.id, member.display_name] for member in ctx.channel.members]
     members_id = [member.id for member in ctx.channel.members]
     members_dict = {i[0]: i[1] for i in members_list}
     eligible_birthdays = []
@@ -458,8 +459,18 @@ async def show_birthdays(ctx):
     if not eligible_birthdays:
         logger.debug('No eligible birthdays found for reply')
         return
-    eligible_birthdays.sort()
 
+    # Sort the list
+    if sorting_key == 'name':
+        eligible_birthdays.sort()
+    elif sorting_key == 'date':
+        eligible_birthdays.sort(key = lambda x: convert_to_structdate(x[1]))
+    else:
+        logging.error('Unsupported sorting method')
+        db.close()
+        return
+
+    # Compose and send the reply
     reply = ['```']
     reply.append('Birthdays:')
     longest_name = max([len(i[0]) for i in eligible_birthdays])
