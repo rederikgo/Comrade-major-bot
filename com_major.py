@@ -1,6 +1,7 @@
 from collections import Counter
 from datetime import timedelta
 from datetime import datetime
+from operator import itemgetter
 import asyncio
 import logging
 import logging.handlers
@@ -364,7 +365,7 @@ async def slap(ctx, target):
     await ctx.send(f'{ctx.author.mention} slaps {target} around a bit with a large trout')
 
 
-# Check for birthdays
+# Check for birthdays and congratulate member
 async def report_birthdays():
     await client.wait_until_ready()
     while not client.is_closed():
@@ -386,6 +387,7 @@ async def report_birthdays():
                         await congrat(channel, user_id)
                         db.mark_congrated(user_id, datetime.now().year)
         await asyncio.sleep(check_frequency)
+        db.close()
 
 
 async def congrat(channel, user_id):
@@ -394,8 +396,10 @@ async def congrat(channel, user_id):
     message = random.choice(congrats)
     user_name = get_user_mention(channel, user_id)
     await channel.send(message.format(user_name=user_name))
+    db.close()
 
 
+# Set or replace birthday
 @client.command()
 async def set_birthday(ctx):
     try:
@@ -418,6 +422,7 @@ async def set_birthday(ctx):
     db.update_birthday(target_user_id, date_raw)
     logger.info(report_text)
     await ctx.send(report_text)
+    db.close()
 
 
 def convert_to_structdate(date_raw):
@@ -431,10 +436,40 @@ def convert_to_structdate(date_raw):
         logger.error('No date or wrong date format')
         return
 
+
 def get_user_mention(channel, user_id):
     for user in channel.members:
         if user.id == user_id:
             return user.mention
+
+
+# Send report on stored birthdays sorted by user name
+@client.command()
+async def show_birthdays(ctx):
+    db = DB(db_path, db_init_script)
+    birthdays = db.get_birthdays()
+    members_list = [[member.id, member.name] for member in ctx.channel.members]
+    members_id = [member.id for member in ctx.channel.members]
+    members_dict = {i[0]: i[1] for i in members_list}
+    eligible_birthdays = []
+    for birthday in birthdays:
+        if birthday[0] in members_id:
+            eligible_birthdays.append([members_dict[birthday[0]], birthday[1]])
+    if not eligible_birthdays:
+        logger.debug('No eligible birthdays found for reply')
+        return
+    eligible_birthdays.sort()
+
+    reply = ['```']
+    reply.append('Birthdays:')
+    longest_name = max([len(i[0]) for i in eligible_birthdays])
+    for birthday in eligible_birthdays:
+        spaces = longest_name - len(birthday[0]) + 5
+        reply.append(f'- {birthday[0]}{spaces*" "}{birthday[1]}')
+    reply.append('```')
+    reply_string = '\n'.join(reply)
+    await ctx.send(reply_string)
+    db.close()
 
 # WRYYYYY
 try:

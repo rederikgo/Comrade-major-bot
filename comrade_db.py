@@ -34,7 +34,6 @@ class DB:
             self.logger.error('Database is locked')
             raise DatabaseError('Database is locked')
 
-
     # Create the new db
     def _create_db(self):
         try:
@@ -48,6 +47,9 @@ class DB:
         self.cursor.executescript(self.init_script)
         self.connection.close()
         self.logger.info('New database created')
+
+    def close(self):
+        self.connection.close()
 
     # Add member
     def add_member(self, id):
