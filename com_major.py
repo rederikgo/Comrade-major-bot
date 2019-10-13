@@ -483,9 +483,9 @@ async def show_birthdays(ctx, sorting_key='name'):
 
     # Sort the list
     if sorting_key == 'name':
-        eligible_birthdays.sort()
+        eligible_birthdays.sort(key=lambda x: x[0].lower())
     elif sorting_key == 'date':
-        eligible_birthdays.sort(key = lambda x: convert_to_structdate(x[1]))
+        eligible_birthdays.sort(key=lambda x: convert_to_structdate(x[1]))
     else:
         logging.error('Unsupported sorting method')
         db.close()
