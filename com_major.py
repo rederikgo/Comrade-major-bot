@@ -292,7 +292,7 @@ async def force(ctx, depth):
 
 # Post simple report (total links in archive and user contribution)
 @client.command()
-async def report(ctx, target='archive'):
+async def report(ctx, target='archive', sorting_order='name'):
     logger.info('Got archive report command')
 
     if target == 'archive':
@@ -312,17 +312,21 @@ async def report(ctx, target='archive'):
         report.append(f'Total messages: {len(posters)}')
         report.append('')
         report.append('Posters:')
-        report += format_members_list(posters)
+        report += format_members_list(posters, sorting_order)
         report.append('```')
         report_string = '\n'.join(report)
         await ctx.send(report_string)
 
     elif target == 'this':
         messages = await ctx.channel.history(limit=archive_depth).flatten()
+        active_members = [member.id for member in ctx.channel.members]
         posters = []
         for message in messages:
             if message.author != client.user:
-                posters.append(message.author.name)
+                if message.author.id in active_members:
+                    posters.append(message.author.display_name)
+                else:
+                    posters.append('Inactive members')
 
         if ctx.channel.id in discord_watched_channels:
             channel_type = 'watched'
@@ -341,22 +345,39 @@ async def report(ctx, target='archive'):
         report.append(f'Channel type: {channel_type}')
         report.append('')
         report.append('Posters:')
-        report += format_members_list(posters)
+        report += format_members_list(posters, sorting_order)
         report.append('```')
         report_string = '\n'.join(report)
         await ctx.send(report_string)
 
 
-def format_members_list(posters):
+# Get formatted and sorted list of posters for the report
+def format_members_list(posters, sorting_order):
+    # Count post for each poster, calculate some figures for formatting
     poster_stats = Counter(posters)
     max_value = max(poster_stats.values())
     longest_name = max([len(x) for x in poster_stats.keys()])
     step = int(max_value / max_pips) + 1
+
+    # Convert dict to list and sort
+    poster_stats_list = []
+    for key in poster_stats:
+        poster_stats_list.append([key, poster_stats[key]])
+    if sorting_order == 'name':
+        poster_stats_list.sort(key=lambda x: x[0].lower())
+    elif sorting_order == 'count':
+        poster_stats_list.sort(key=lambda x: x[1], reverse=True)
+    else:
+        logging.error('Unsupported sorting order')
+
+    # Return the list of formatted strings for the report
     report = []
-    for key in sorted(poster_stats):
-        spaces = longest_name - len(key)
-        pips = max(1, int(poster_stats[key] / step))
-        report.append(f'{key}:{" " * spaces} {"-" * pips} {poster_stats[key]}')
+    for poster in poster_stats_list:
+        poster_name = poster[0]
+        poster_message_count = poster[1]
+        spaces = longest_name - len(poster_name)
+        pips = max(1, int(poster_message_count / step))
+        report.append(f'{poster_name}:{" " * spaces} {"-" * pips} {poster_message_count}')
     return report
 
 
