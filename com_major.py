@@ -292,7 +292,7 @@ async def force(ctx, depth):
 
 # Post simple report (total links in archive and user contribution)
 @client.command()
-async def report(ctx, target='archive', sorting_order='name'):
+async def report(ctx, target='archive', sorting_order='count'):
     logger.info('Got archive report command')
 
     if target == 'archive':
