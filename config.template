@@ -14,6 +14,7 @@ bot:
     ok reply: 'Done'
     utc time offset: 3
     allow copies in archive: True
+	duplicacte emoji:
     archive depth: 10000
     url pattern: '(?:[http|ftp|https]+:\/\/)?[\w\-]+(?:(?:\.[\w-]+)+)(?:\/[\w\-=?%\$\&!#\+~\.]+)+'
     max pips in report: 50

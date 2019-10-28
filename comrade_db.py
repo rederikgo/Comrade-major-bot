@@ -1,99 +1,172 @@
+import aiosqlite
 import sqlite3
 import os
 import logging
+
 
 class DatabaseError(Exception):
     def __init__(self, message):
         self.message = message
 
 
-class DB:
-    # Init and connect
-    def __init__(self, db_path, init_script_path):
+class DBConnection:
+    def __init__(self, db_path, init_script):
         self.logger = logging.getLogger()
         self.db_path = db_path
-        self.init_script_path = init_script_path
-        self._connect()
-
-    # Test if the db file exists, try to connect and check if db is locked
-    def _connect(self):
+        self.init_script = init_script
         if not os.path.isfile(self.db_path):
             self.logger.error('Cant find database file. Creating the new one')
             self._create_db()
 
-        try:
-            self.connection = sqlite3.connect(self.db_path)
-            self.cursor = self.connection.cursor()
-        except:
-            self.logger.error('Cant connect to the database')
-            raise DatabaseError('Cant connect to the database')
+    async def __aenter__(self):
+        self.db = await aiosqlite.connect(self.db_path)
+        return self.db
 
-        try:
-            self.connection.execute('VACUUM')
-        except:
-            self.logger.error('Database is locked')
-            raise DatabaseError('Database is locked')
+    async def __aexit__(self, exc_type, exc, tb):
+        await self.db.close()
 
-    # Create the new db
     def _create_db(self):
+        connection = sqlite3.connect(self.db_path)
+        cursor = connection.cursor()
         try:
-            self.connection = sqlite3.connect(self.db_path)
-            self.cursor = self.connection.cursor()
-            self.init_script = open(self.init_script_path).read()
+            script = open(self.init_script).read()
         except:
             self.logger.error('Cant open init script file')
             raise DatabaseError('Cant open init script file')
 
-        self.cursor.executescript(self.init_script)
-        self.connection.close()
+        cursor.executescript(script)
+        connection.close()
         self.logger.info('New database created')
 
-    def close(self):
-        self.connection.close()
 
-    # Add member
-    def add_member(self, id):
-        self.cursor.execute("""
-            INSERT INTO Members (id, birthday)
-            VALUES (?, NULL);
-        """, (id,))
-        self.connection.commit()
+class AsyncDB:
+    def __init__(self, db_path, init_script):
+        self.logger = logging.getLogger()
+        self.database = DBConnection(db_path, init_script)
 
-    def get_members(self):
-        self.cursor.execute("""
-            SELECT id
-            FROM Members
-        """)
-        result = self.cursor.fetchall()
+    async def add_member(self, id):
+        async with self.database as db:
+            await db.execute("""
+                INSERT INTO Members (id, birthday)
+                VALUES (?, NULL);
+            """, (id,))
+            await db.commit()
+
+    async def get_members(self):
+        async with self.database as db:
+            cur = await db.execute("""
+                SELECT id
+                FROM Members
+            """)
+            result = await cur.fetchall()
         return [i[0] for i in result]
 
-    def update_birthday(self, member_id, birthday):
-        self.cursor.execute("""
-            UPDATE Members 
-            SET birthday = ?
-            WHERE id = ?
-        """, (birthday, member_id))
-        self.connection.commit()
+    async def update_birthday(self, member_id, birthday):
+        async with self.database as db:
+            await db.execute("""
+                UPDATE Members 
+                SET birthday = ?
+                WHERE id = ?
+            """, (birthday, member_id))
+            await db.commit()
 
-    def get_birthdays(self):
-        self.cursor.execute("""
-            SELECT id, birthday, last_reported
-            FROM Members
-            WHERE birthday is not NULL
-        """)
-        return self.cursor.fetchall()
+    async def get_birthdays(self):
+        async with self.database as db:
+            cur = await db.execute("""
+                SELECT id, birthday, last_reported
+                FROM Members
+                WHERE birthday is not NULL
+            """)
+            result = await cur.fetchall()
+        return result
 
-    def mark_congrated(self, member_id, last_reported):
-        self.cursor.execute("""
-            UPDATE Members 
-            SET last_reported = ?
-            WHERE id = ?
-        """, (last_reported, member_id))
-        self.connection.commit()
+    async def mark_congrated(self, member_id, last_reported):
+        async with self.database as db:
+            await db.execute("""
+                UPDATE Members 
+                SET last_reported = ?
+                WHERE id = ?
+            """, (last_reported, member_id))
+            await db.commit()
 
-    def get_congrats(self):
-        self.cursor.execute("""
-            SELECT text
-            FROM Congrats
-        """)
-        return self.cursor.fetchall()
+    async def get_congrats(self):
+        async with self.database as db:
+            cur = await db.execute("""
+                SELECT text
+                FROM Congrats
+            """)
+            result = await cur.fetchall()
+        return result
+
+    async def add_video(self, link):
+        async with self.database as db:
+            cur = await db.execute("""
+                INSERT INTO Videos(link)
+                VALUES (?);
+            """, (link,))
+            await db.commit()
+            last_row = cur.lastrowid
+        return last_row
+
+    async def enrich_video(self, id, artist, title):
+        async with self.database as db:
+            await db.execute("""
+                UPDATE Videos(artist, title)
+                SET artist = ?, title = ?
+                WHERE id = ?;
+            """, (artist, title, id))
+            await db.commit()
+
+    async def get_videos(self):
+        async with self.database as db:
+            cur = await db.execute("""
+                SELECT id, link, artist, title
+                FROM Videos;
+            """)
+            result = await cur.fetchall()
+        return result
+
+    async def get_video_by_link(self, link):
+        async with self.database as db:
+            cur = await db.execute("""
+                SELECT id
+                FROM Videos
+                WHERE link = ?;
+            """, (link,))
+            result = await cur.fetchall()
+        if result:
+            return result[0][0]
+
+    async def has_it_been_posted(self, url, archive_channel):
+        async with self.database as db:
+            cur = await db.execute("""
+                SELECT P.date_posted
+                FROM Posted P
+                JOIN Videos V on P.video_id = V.id
+                WHERE V.link = ? AND P.archive_channel = ?;
+            """, (url, archive_channel))
+            result = await cur.fetchall()
+        if result:
+            return result[0][0]
+
+    async def archive_video(self, video_id, archive_channel, source_channel, user_id, date_posted):
+        async with self.database as db:
+            cur = await db.execute("""
+                INSERT INTO Posted(video_id, archive_channel, source_channel, user_id, date_posted)
+                VALUES (?, ?, ?, ?, ?);
+            """, (video_id, archive_channel, source_channel, user_id, date_posted))
+            await db.commit()
+            last_row = cur.lastrowid
+        return last_row
+
+    async def get_archived_video_by_id(self, posted_id):
+        async with self.database as db:
+            cur = await db.execute("""
+                SELECT V.link, P.user_id, P.date_posted
+                FROM Posted P
+                JOIN Videos V on P.video_id = V.id 
+                WHERE P.id = ?;
+            """, (posted_id, ))
+            result = await cur.fetchall()
+        if result:
+            return result[0]

@@ -1,16 +1,15 @@
 from collections import Counter
 from datetime import timedelta
 from datetime import datetime
-from operator import itemgetter
 import asyncio
 import logging
 import logging.handlers
+import os
 import random
 import re
 import time
 import urllib
 
-import discord
 from discord.ext.commands import HelpCommand
 from discord.ext import commands
 from pythonjsonlogger import jsonlogger
@@ -18,51 +17,50 @@ import sentry_sdk
 import yaml
 
 from youtube import YoutubePlaylists
-from comrade_db import DB
-
-async def update_archive_content(depth=10000):
-    # Load full archive from Discord
-    global archive_history_full
-    try:
-        archive_channel = client.get_channel(archive_channel_id)
-        archive_history_full = await archive_channel.history(limit=depth).flatten()
-    except:
-        logger.error(f'Failed to load archive from Discord')
-        return
-
-    # Get the list of messages
-    global archive_history_content
-    archive_history_content = [message.content for message in archive_history_full]
-    logger.debug(f'Loaded {len(archive_history_content)} archive entities')
+from comrade_db import AsyncDB
 
 
-# Add the message to the archive list manually (to avoid full reload of archive list)
-async def add_to_archive_content(link):
-    global archive_history_content
-    archive_history_content.append(link)
-
-
-# Check message and call specific provider routine
-async def check_message(message, allow_copies=True):
-    # Check if the message is from a watched channel
+# Check if the message contains valid link and process if it does
+async def check_message(message, allow_copies=True, silent=False):
     if message.channel.id not in discord_watched_channels:
+        if message.channel.id == archive_channel_id:
+            await process_archive_channel_posting()
         return
 
-    # Check if the message contains an eligible link and execute corresponding routine
+    # Check if the message contains an eligible link and archive
     provider = is_link(message.content)
     if provider and provider != 'undefined link':
         logger.debug(f'Detected video in {message.content}')
-        # Check if the link has been already archived (optional)
-        if allow_copies == False:
-            global archive_history_content
-            if clean_link(message.content) in archive_history_content:
+
+        # Clean link
+        link = extract_link(message.content)
+        link, video_id = clean_link(link, provider)
+
+        # Check if youtube category is eligible
+        if provider == 'youtube':
+            if not is_eligible_category(video_id):
+                return
+
+        # Check if the link has been already archived
+        is_posted = await db.has_it_been_posted(link, archive_channel_id)
+        if is_posted:
+            # Add emoji to duplicate links
+            if not silent:
+                for emoji in client.emojis:
+                    if emoji.name == duplicate_emoji:
+                        try:
+                            await message.add_reaction(client.get_emoji(emoji.id))
+                            break
+                        except:
+                            logger.error('Cant find emoji for duplicate links on the server')
+
+            # Do nothing if copies are not allowed
+            if not allow_copies:
                 logger.debug(f'Video from {message.content} rejected (already in the archive)')
                 return
 
-        if provider == 'youtube':
-            await process_youtube(message)
-        elif provider == 'vimeo':
-            await process_vimeo(message)
+        # Archive finally
+        await archive_video(message, link, silent)
 
 
 # Check if the message contains an (eligible) link
@@ -79,35 +77,51 @@ def is_link(content):
 
 
 # Extract first eligible link from the the message
-def clean_link(content):
+def extract_link(content):
     link = re.findall(url_pattern, content)
     if link:
         return link[0]
     else:
         logger.error(f'Error extracting link from {content}')
 
+# Get video id and shorten it (for youtube now, but who knows)
+def clean_link(link, provider):
+    if provider == 'youtube':
+        video_id = get_id(link)
+        clean_url = 'https://www.youtube.com/watch?v=' + video_id
+    else:
+        video_id = ''
+        clean_url = link
+    return clean_url, video_id
+
 
 # Copy video to archive channel
-async def archive_video(message):
+async def archive_video(message, link, silent=False):
+    video_id = await db.get_video_by_link(link)
+    if not video_id:
+        video_id = await db.add_video(link)
+    posted_id = await db.archive_video(video_id, archive_channel_id, message.channel.id, message.author.id, time.strftime(db_timeformat_full))
+    logger.info(f'Video archived: {link}')
+    if not silent:
+        await post_video_to_archive_channel(posted_id)
+
+
+async def post_video_to_archive_channel(posted_id):
     channel = client.get_channel(archive_channel_id)
-    message_time = message.created_at + timedelta(hours=utc_time_offset)
-    time_posted = message_time.strftime('%Y-%m-%d %H:%M')
-    link = clean_link(message.content)
-    await channel.send(f"{message.author.name} at {time_posted}:")
+    post_info = await db.get_archived_video_by_id(posted_id)
+    link = post_info[0]
+    user_id = post_info[1]
+    time_posted = post_info[2]
+    time_posted_struct = datetime.strptime(time_posted, db_timeformat_full)
+    time_posted_local = time_posted_struct + timedelta(hours=utc_time_offset)
+    user_name = 'Someone'
+    for user in channel.members:
+        if user.id == user_id:
+            user_name = user.display_name
+
+    await channel.send(f"{user_name} at {time_posted_local}:")
     await channel.send(link)
-    await add_to_archive_content(link=link)
-    logger.info(f'Video archived: {message.content}')
-
-
-# Process youtube
-async def process_youtube(message):
-    # Extract link from possible surrounding text
-    link = clean_link(message.content)
-    # Get youtube video id
-    video_id = get_id(link)
-    # Check if video category is eligible and archive
-    if is_eligible_category(video_id):
-        await archive_video(message)
+    logger.info(f'Video posted to channel: {link}')
 
 
 # Get youtube video id
@@ -142,8 +156,13 @@ def is_eligible_category(video_id):
 
 
 # Process vimeo
-async def process_vimeo(message):
-    await archive_video(message)
+async def process_vimeo(message, silent):
+    await archive_video(message, silent)
+
+
+# Warn user on archive channel posting and clean after delay
+async def process_archive_channel_posting():
+    pass
 
 
 # Load custom help file 'help.txt'
@@ -159,7 +178,7 @@ class custom_help(HelpCommand):
         await self.context.send(help_text)
 
 
-# Main
+# MAIN
 # Load config
 with open('config.yaml', 'r') as configfile:
     cfg = yaml.safe_load(configfile)
@@ -169,6 +188,9 @@ sentry_dsn = cfg['debug']['sentry dsn']
 sentry_app_name = cfg['debug']['sentry appname']
 sentry_environment = cfg['debug']['sentry environment']
 sentry_sdk.init(sentry_dsn, release=sentry_app_name, environment=sentry_environment)
+
+# Enable debug for asyncio
+os.environ['PYTHONASYNCIODEBUG'] = '1'
 
 # Setup logging
 logging_level = cfg['debug']['debug level']
@@ -204,17 +226,22 @@ command_prefix = cfg['bot']['command prefix']
 ok_reply = cfg['bot']['ok reply']
 bot_admins = cfg['bot']['admin users']
 allow_copies = cfg['bot']['allow copies in archive']
+duplicate_emoji = cfg['bot']['duplicacte emoji']
 archive_depth = cfg['bot']['archive depth']
 url_pattern = cfg['bot']['url pattern']
 max_pips = cfg['bot']['max pips in report']
 db_path = cfg['database']['path']
 db_init_script = cfg['database']['init_script']
+db_timeformat_full = '%Y-%m-%d %H:%M:%S'
 birthday_report_time = cfg['database']['birthday_report_time']
 check_frequency = cfg['database']['check_frequency']
 
 helpme = custom_help()
 client = commands.Bot(command_prefix=command_prefix, help_command=helpme)
+db = AsyncDB(db_path, db_init_script)
 
+
+# TRIGGERS AND COMMANDS
 @client.event
 async def on_ready():
     # Log status on connect
@@ -224,9 +251,6 @@ async def on_ready():
         logger.info(f'Watching [{watched_channel.name}] on [{watched_channel.guild}]')
     video_channel = client.get_channel(archive_channel_id)
     logger.info(f'Will copy videos to [{video_channel.name}] on [{video_channel.guild}]')
-
-    # Load messages from archive channel
-    await update_archive_content(depth=archive_depth)
 
 
 @client.event
@@ -244,15 +268,18 @@ async def on_message(message):
 
 # Scan X last messages and archive eligible, which have not been archived before
 @client.command()
-async def archive(ctx, depth=10000):
+async def archive(ctx, depth=10000, mode=''):
     # Get channel history
     logger.debug('Got archive command')
     ctx_history = await ctx.history(limit=int(depth), oldest_first=True).flatten()
     logger.debug(f'Loaded {len(ctx_history)} historic messages from context channel')
 
     # Check all messages in channel and archive music videos which are not in the archive
+    silent = False
+    if mode.lower() == 'silent':
+        silent = True
     for message in ctx_history:
-        await check_message(message, allow_copies=False)
+        await check_message(message, allow_copies=allow_copies, silent=silent)
 
     await ctx.send(ok_reply)
 
@@ -268,7 +295,6 @@ async def wipe_archive(ctx):
     for message in hist:
         logger.info(f'Deleting message: {message.content}')
         await message.delete()
-    await update_archive_content(depth=archive_depth)
 
     await ctx.send(ok_reply)
 
@@ -286,15 +312,17 @@ async def force(ctx, depth):
     ctx_history = await ctx.history(limit=int(depth)+1).flatten()
     for message in ctx_history:
         if is_link(message.content):
-            logger.debug(f'Force-archiving message {message.content}')
-            await archive_video(message)
+            link = extract_link(message.content)
+            logger.debug(f'Force-archiving message {link}')
+            await archive_video(message, link)
 
 
 # Post simple report (total links in archive and user contribution)
 @client.command()
-async def report(ctx, target='archive', sorting_order='count'):
+async def report(ctx, target='this', sorting_order='count'):
     logger.info('Got archive report command')
 
+    # !!!Rewrite to check from the db!!!
     if target == 'archive':
         archive_channel = client.get_channel(archive_channel_id)
         archive_messages = await archive_channel.history(limit=archive_depth).flatten()
@@ -381,6 +409,7 @@ def format_members_list(posters, sorting_order):
     return report
 
 
+# Lots of fun!
 @client.command()
 async def slap(ctx, target):
     await ctx.send(f'{ctx.author.mention} slaps {target} around a bit with a large trout')
@@ -390,10 +419,9 @@ async def slap(ctx, target):
 async def report_birthdays():
     await client.wait_until_ready()
     while not client.is_closed():
-        db = DB(db_path, db_init_script)
         for watched_channel in discord_watched_channels:
             channel = client.get_channel(watched_channel)
-            birthdays = db.get_birthdays()
+            birthdays = await db.get_birthdays()
             current_str_time = time.gmtime(time.time())
             if current_str_time[3] >= birthday_report_time:
                 for birthday in birthdays:
@@ -406,18 +434,15 @@ async def report_birthdays():
                         continue
                     if date[1:3] == current_str_time[1:3]:
                         await congrat(channel, user_id)
-                        db.mark_congrated(user_id, datetime.now().year)
+                        await db.mark_congrated(user_id, datetime.now().year)
         await asyncio.sleep(check_frequency)
-        db.close()
 
 
 async def congrat(channel, user_id):
-    db = DB(db_path, db_init_script)
-    congrats = [i[0] for i in db.get_congrats()]
+    congrats = [i[0] for i in await db.get_congrats()]
     message = random.choice(congrats)
     user_name = get_user_mention(channel, user_id)
     await channel.send(message.format(user_name=user_name))
-    db.close()
 
 
 # Set or replace birthday
@@ -433,26 +458,24 @@ async def set_birthday(ctx):
     if not convert_to_structdate(date_raw):
         return
 
-    db = DB(db_path, db_init_script)
-    members = db.get_members()
+    members = await db.get_members()
     if target_user_id not in members:
-        db.add_member(target_user_id)
+        await db.add_member(target_user_id)
         report_text = f'Added birthday date for {ctx.message.mentions[0].display_name}'
     else:
         report_text = f'Updated birthday date for {ctx.message.mentions[0].display_name}'
-    db.update_birthday(target_user_id, date_raw)
+    await db.update_birthday(target_user_id, date_raw)
     logger.info(report_text)
     await ctx.send(report_text)
-    db.close()
 
 
 def convert_to_structdate(date_raw):
     try:
         if len(date_raw.split('.')) == 3:
-            format = '%d.%m.%Y'
+            frmt = '%d.%m.%Y'
         else:
-            format = '%d.%m'
-        return time.strptime(date_raw, format)
+            frmt = '%d.%m'
+        return time.strptime(date_raw, frmt)
     except:
         logger.error('No date or wrong date format')
         return
@@ -468,8 +491,7 @@ def get_user_mention(channel, user_id):
 @client.command()
 async def show_birthdays(ctx, sorting_key='name'):
     # Get the list of current members with birthdays from the database
-    db = DB(db_path, db_init_script)
-    birthdays = db.get_birthdays()
+    birthdays = await db.get_birthdays()
     members_list = [[member.id, member.display_name] for member in ctx.channel.members]
     members_id = [member.id for member in ctx.channel.members]
     members_dict = {i[0]: i[1] for i in members_list}
@@ -488,12 +510,10 @@ async def show_birthdays(ctx, sorting_key='name'):
         eligible_birthdays.sort(key=lambda x: convert_to_structdate(x[1]))
     else:
         logging.error('Unsupported sorting method')
-        db.close()
         return
 
     # Compose and send the reply
-    reply = ['```']
-    reply.append('Birthdays:')
+    reply = ['```', 'Birthdays:']
     longest_name = max([len(i[0]) for i in eligible_birthdays])
     for birthday in eligible_birthdays:
         spaces = longest_name - len(birthday[0]) + 5
@@ -501,7 +521,7 @@ async def show_birthdays(ctx, sorting_key='name'):
     reply.append('```')
     reply_string = '\n'.join(reply)
     await ctx.send(reply_string)
-    db.close()
+
 
 # WRYYYYY
 try:
