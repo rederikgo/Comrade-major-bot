@@ -12,6 +12,7 @@ bot:
     target video channel: 
     command prefix: '$'
     ok reply: 'Done'
+	archive posting warning: ''
     utc time offset: 3
     allow copies in archive: True
 	duplicacte emoji:

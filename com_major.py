@@ -161,8 +161,11 @@ async def process_vimeo(message, silent):
 
 
 # Warn user on archive channel posting and clean after delay
-async def process_archive_channel_posting():
-    pass
+async def process_archive_channel_posting(message):
+    my_msg = await message.channel.send(archive_posting_warning)
+    await my_msg.delete(delay=15)
+    await message.delete(delay=15)
+    logger.info('Cleared random message to archive channel')
 
 
 # Load custom help file 'help.txt'
@@ -180,7 +183,7 @@ class custom_help(HelpCommand):
 
 # MAIN
 # Load config
-with open('config.yaml', 'r') as configfile:
+with open('config.yaml', 'r', encoding="utf-8") as configfile:
     cfg = yaml.safe_load(configfile)
 
 # Setup sentry.io reporting
@@ -224,6 +227,7 @@ eligible_video_categories = cfg['youtube']['eligible categories']
 utc_time_offset = cfg['bot']['utc time offset']
 command_prefix = cfg['bot']['command prefix']
 ok_reply = cfg['bot']['ok reply']
+archive_posting_warning = cfg['bot']['archive posting warning']
 bot_admins = cfg['bot']['admin users']
 allow_copies = cfg['bot']['allow copies in archive']
 duplicate_emoji = cfg['bot']['duplicacte emoji']
@@ -262,6 +266,11 @@ async def on_message(message):
     if message.author == client.user:
         return
 
+    # Process random posts to archive channel
+    if message.channel.id == archive_channel_id:
+        await process_archive_channel_posting(message)
+        return
+
     # Check the new message and archive if it is eligible music video
     await check_message(message, allow_copies=allow_copies)
 
@@ -279,7 +288,7 @@ async def archive(ctx, depth=10000, mode=''):
     if mode.lower() == 'silent':
         silent = True
     for message in ctx_history:
-        await check_message(message, allow_copies=allow_copies, silent=silent)
+        await check_message(message, allow_copies=False, silent=silent)
 
     await ctx.send(ok_reply)
 
