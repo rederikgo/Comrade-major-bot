@@ -16,9 +16,10 @@ from pythonjsonlogger import jsonlogger
 import sentry_sdk
 import yaml
 
-from youtube import YoutubePlaylists
 from comrade_db import AsyncDB
-
+from lastfm import LastRequester
+from videos_meta import parse_title, remove_brackets, remove_unicode
+from youtube import YoutubePlaylists
 
 # Check if the message contains valid link and process if it does
 async def check_message(message, allow_copies=True, silent=False):
@@ -37,8 +38,13 @@ async def check_message(message, allow_copies=True, silent=False):
         link, video_id = clean_link(link, provider)
 
         # Check if youtube category is eligible
+        video_title = ''
+        video_category = ''
         if provider == 'youtube':
-            if not is_eligible_category(video_id):
+            video_info = get_youtube_video_info(video_id)
+            video_title = video_info['items'][0]['snippet']['title']
+            video_category = video_info['items'][0]['snippet']['categoryId']
+            if video_category not in eligible_video_categories:
                 return
 
         # Check if the link has been already archived
@@ -60,7 +66,7 @@ async def check_message(message, allow_copies=True, silent=False):
                 return
 
         # Archive finally
-        await archive_video(message, link, silent)
+        await archive_video(message, link, video_title, silent)
 
 
 # Check if the message contains an (eligible) link
@@ -95,11 +101,11 @@ def clean_link(link, provider):
     return clean_url, video_id
 
 
-# Copy video to archive channel
-async def archive_video(message, link, silent=False):
+# Add video to the database and copy to archive channel
+async def archive_video(message, link, video_title, silent=False):
     video_id = await db.get_video_by_link(link)
     if not video_id:
-        video_id = await db.add_video(link)
+        video_id = await db.add_video(link, video_title)
     posted_id = await db.archive_video(video_id, archive_channel_id, message.channel.id, message.author.id, time.strftime(db_timeformat_full))
     logger.info(f'Video archived: {link}')
     if not silent:
@@ -138,21 +144,12 @@ def get_id(link):
     except:
         logger.error(f'Error getting video id from {link}')
 
-
-# Check if youtube video category is eligible
-def is_eligible_category(video_id):
-    # Get video category from video info
-    video_category = ''
+# Get video info
+def get_youtube_video_info(video_id):
     try:
-        video_info = youtube.get_video_info(video_id)
-        video_category = video_info['items'][0]['snippet']['categoryId']
+        return youtube.get_video_info(video_id)
     except:
-        logger.error(f'Error checking category {video_id}')
-
-    if video_category in eligible_video_categories:
-        return True
-    else:
-        logger.info(f'Video rejected (wrong category): {video_id}')
+        logger.error(f'Error retrieving video info {video_id}')
 
 
 # Process vimeo
@@ -163,9 +160,105 @@ async def process_vimeo(message, silent):
 # Warn user on archive channel posting and clean after delay
 async def process_archive_channel_posting(message):
     my_msg = await message.channel.send(archive_posting_warning)
-    await my_msg.delete(delay=15)
-    await message.delete(delay=15)
+    await my_msg.delete(delay=5)
+    await message.delete(delay=5)
     logger.info('Cleared random message to archive channel')
+
+
+# Update video titles
+async def update_video_titles():
+    videos = await db.get_videos()
+    for video in videos:
+        id = video[0]
+        link = video[1]
+        video_title = video[2]
+
+        # Skip videos with titles
+        if video_title:
+            continue
+
+        if is_link(link) == 'youtube':
+            video_id = get_id(link)
+            video_info = get_youtube_video_info(video_id)
+            try:
+                video_title = video_info['items'][0]['snippet']['title']
+                await db.update_video_title(id, video_title)
+            except:
+                logger.warning(f'No title for video {link}')
+
+
+# Guess artist
+async def guess_artist():
+    try:
+        lastfm = LastRequester(lastfm_token)
+    except:
+        logger.error('Cant init last.fm connection')
+        return False
+
+    videos = await db.get_videos()
+    for video in videos:
+        id = video[0]
+        link = video[1]
+        video_title = video[2]
+        artist = video[3]
+
+        # Skip videos which already have artist parsed
+        if artist:
+            continue
+        # Skip videos without titles
+        if not video_title:
+            continue
+
+        # Try to parse the title
+        parsed_artist = parse_title(video_title)
+        if not parsed_artist:
+            logger.debug(f'Failed to parse {link}')
+            continue
+
+        # Clean the parsed title
+        clean_artist = []
+        for _ in parsed_artist:
+            clean = remove_unicode(_)
+            clean = remove_brackets(clean)
+            clean = clean.strip()
+            clean_artist.append(clean)
+        artist = clean_artist[0]
+        title = clean_artist[1]
+
+        # Check if such artist exists on last.fm
+        if not lastfm.check_artist(artist):
+            logger.debug(f'Cant find {artist} on lastfm')
+            continue
+
+        # Update database finally
+        await db.enrich_video(id, artist, title)
+        logger.debug(f'Enriched {link} as {artist} - {title}')
+
+
+# Get top tags for videos from lastfm
+async def get_tags_lastfm():
+    try:
+        lastfm = LastRequester(lastfm_token)
+    except:
+        logger.error('Cant init last.fm connection')
+        return False
+
+    videos = await db.get_videos()
+    for video in videos:
+        video_id = video[0]
+        artist = video[3]
+
+        # Skip videos without artists
+        if not artist:
+            continue
+
+        # Skip videos which have tags
+        if await db.check_video_tags(video_id):
+            continue
+
+        top_tags = lastfm.check_artist(artist)
+        for tag in top_tags:
+            await db.add_tag(video_id, tag)
 
 
 # Load custom help file 'help.txt'
@@ -239,6 +332,7 @@ db_init_script = cfg['database']['init_script']
 db_timeformat_full = '%Y-%m-%d %H:%M:%S'
 birthday_report_time = cfg['database']['birthday_report_time']
 check_frequency = cfg['database']['check_frequency']
+lastfm_token = cfg['lastfm']['token']
 
 helpme = custom_help()
 client = commands.Bot(command_prefix=command_prefix, help_command=helpme)
@@ -531,6 +625,21 @@ async def show_birthdays(ctx, sorting_key='name'):
     reply_string = '\n'.join(reply)
     await ctx.send(reply_string)
 
+
+@client.command()
+async def update_titles(ctx):
+    await update_video_titles()
+    await ctx.send(ok_reply)
+
+@client.command()
+async def enrich_titles(ctx):
+    await guess_artist()
+    await ctx.send(ok_reply)
+
+@client.command()
+async def get_tags(ctx):
+    await get_tags_lastfm()
+    await ctx.send(ok_reply)
 
 # WRYYYYY
 try:

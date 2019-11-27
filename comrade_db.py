@@ -98,20 +98,30 @@ class AsyncDB:
             result = await cur.fetchall()
         return result
 
-    async def add_video(self, link):
+    async def add_video(self, link, video_title):
         async with self.database as db:
             cur = await db.execute("""
-                INSERT INTO Videos(link)
+                INSERT INTO Videos(link, video_title)
                 VALUES (?);
-            """, (link,))
+            """, (link, video_title))
             await db.commit()
             last_row = cur.lastrowid
         return last_row
 
+    # Temp, for old videos
+    async def update_video_title(self, id, video_title=''):
+        async with self.database as db:
+            cur = await db.execute("""
+                UPDATE Videos
+                SET video_title = ?
+                WHERE id = ?;
+            """, (video_title, id))
+            await db.commit()
+
     async def enrich_video(self, id, artist, title):
         async with self.database as db:
             await db.execute("""
-                UPDATE Videos(artist, title)
+                UPDATE Videos
                 SET artist = ?, title = ?
                 WHERE id = ?;
             """, (artist, title, id))
@@ -120,7 +130,7 @@ class AsyncDB:
     async def get_videos(self):
         async with self.database as db:
             cur = await db.execute("""
-                SELECT id, link, artist, title
+                SELECT id, link, video_title, artist, title
                 FROM Videos;
             """)
             result = await cur.fetchall()
@@ -170,3 +180,21 @@ class AsyncDB:
             result = await cur.fetchall()
         if result:
             return result[0]
+
+    async def add_tag(self, video_id, tag):
+        async with self.database as db:
+            cur = await db.execute("""
+                INSERT INTO Tags(video_id, tag)
+                VALUES (?, ?);             
+            """, (video_id, tag))
+            await db.commit()
+
+    async def check_video_tags(self, video_id):
+        async with self.database as db:
+            cur = await db.execute("""
+                SELECT tag
+                FROM Tags
+                WHERE video_id = ?;
+            """, (video_id, ))
+            result = await cur.fetchall()
+        return result

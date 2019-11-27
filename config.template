@@ -24,6 +24,8 @@ youtube:
     credentials file: 
     eligible categories:
         - '10'
+lastfm:
+    token: ''
 database:
     path: comrade.db
     init_script: init.sql

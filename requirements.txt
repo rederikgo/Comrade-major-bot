@@ -18,6 +18,7 @@ pyasn1==0.4.5
 pyasn1-modules==0.2.5
 python-json-logger==0.1.11
 PyYAML==5.1
+requests==2.22.0
 rsa==4.0
 sentry-sdk==0.9.5
 six==1.12.0
