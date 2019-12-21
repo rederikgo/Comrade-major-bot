@@ -376,11 +376,16 @@ async def on_message(message):
 
 # Scan X last messages and archive eligible, which have not been archived before
 @client.command()
-async def archive(ctx, depth=10000, mode=''):
+async def archive(ctx, depth=0, starting_from=0, mode=''):
     # Get channel history
     logger.debug('Got archive command')
-    ctx_history = await ctx.history(limit=int(depth), oldest_first=True).flatten()
-    logger.debug(f'Loaded {len(ctx_history)} historic messages from context channel')
+    if depth == 0:
+        depth = None
+    else:
+        depth = int(depth)
+    ctx_history = await ctx.history(limit=depth, oldest_first=True).flatten()
+    ctx_history_filtered = [message for message in ctx_history if message.id > starting_from]
+    logger.debug(f'Loaded {len(ctx_history_filtered)} historic messages from context channel')
 
     # Check all messages in channel and archive music videos which are not in the archive
     silent = False
