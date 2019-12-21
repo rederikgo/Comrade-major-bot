@@ -25,7 +25,7 @@ class Requester:
         self.proxies = proxies
 
         self.error_retries = error_retries
-        self.rate_limit =` rate_limit
+        self.rate_limit = rate_limit
 
         self.request_time = 0
 
