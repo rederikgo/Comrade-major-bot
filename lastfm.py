@@ -18,14 +18,14 @@ class Requester:
         # Setup logging
         # session_hash = os.environ['MB_SESSION_HASH']
         # module = os.environ['MB_MODULE']
-        self.logger = logging.getLogger()
+        self.logger = logging.getLogger("comrade")
 
         self.token = token
         self.headers = {'User-Agent': 'MusicBro/alpha'}
         self.proxies = proxies
 
         self.error_retries = error_retries
-        self.rate_limit = rate_limit
+        self.rate_limit =` rate_limit
 
         self.request_time = 0
 

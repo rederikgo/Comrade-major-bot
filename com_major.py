@@ -42,9 +42,14 @@ async def check_message(message, allow_copies=True, silent=False):
         video_category = ''
         if provider == 'youtube':
             video_info = get_youtube_video_info(video_id)
-            video_title = video_info['items'][0]['snippet']['title']
-            video_category = video_info['items'][0]['snippet']['categoryId']
-            if video_category not in eligible_video_categories:
+            try:
+                video_title = video_info['items'][0]['snippet']['title']
+                video_category = video_info['items'][0]['snippet']['categoryId']
+                if video_category not in eligible_video_categories:
+                    logger.info(f"Video from {link} rejected (invalid category)")
+                    return
+            except:
+                logger.info(f"Video from {link} rejected (no category, probably deleted)")
                 return
 
         # Check if the link has been already archived
@@ -296,7 +301,7 @@ handler = logging.handlers.RotatingFileHandler('comrade.log', mode='a', maxBytes
 handler.setLevel(logging_level)
 handler.setFormatter(formatter)
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("comrade")
 logger.setLevel(logging_level)
 logger.addHandler(handler)
 logger.info('')

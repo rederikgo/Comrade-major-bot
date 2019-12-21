@@ -8,7 +8,7 @@ from oauth2client.tools import run_flow
 
 class YoutubePlaylists():
     def __init__(self, CLIENT_SECRETS_FILE, CREDENTIALS_FILE):
-        logger = logging.getLogger(__name__)
+        logger = logging.getLogger("comrade")
         # Login or create credentials
         YOUTUBE_SCOPE = "https://www.googleapis.com/auth/youtube"
         YOUTUBE_API_SERVICE_NAME = "youtube"

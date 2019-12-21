@@ -11,7 +11,7 @@ class DatabaseError(Exception):
 
 class DBConnection:
     def __init__(self, db_path, init_script):
-        self.logger = logging.getLogger()
+        self.logger = logging.getLogger("comrade")
         self.db_path = db_path
         self.init_script = init_script
         if not os.path.isfile(self.db_path):
@@ -41,7 +41,7 @@ class DBConnection:
 
 class AsyncDB:
     def __init__(self, db_path, init_script):
-        self.logger = logging.getLogger()
+        self.logger = logging.getLogger("comrade")
         self.database = DBConnection(db_path, init_script)
 
     async def add_member(self, id):
