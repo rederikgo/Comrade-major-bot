@@ -102,7 +102,7 @@ class AsyncDB:
         async with self.database as db:
             cur = await db.execute("""
                 INSERT INTO Videos(link, video_title)
-                VALUES (?);
+                VALUES (?, ?);
             """, (link, video_title))
             await db.commit()
             last_row = cur.lastrowid
