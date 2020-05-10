@@ -3,6 +3,7 @@ from datetime import timedelta
 from datetime import datetime
 from datetime import date
 import asyncio
+import argparse
 import logging
 import logging.handlers
 import os
@@ -21,6 +22,14 @@ from comrade_db import AsyncDB
 from lastfm import LastRequester
 from videos_meta import parse_title, remove_brackets, remove_unicode
 from youtube import YoutubePlaylists
+
+# Propper error handling during argparsing
+class ParsingError(Exception):
+    pass
+
+class ArgumentParser(argparse.ArgumentParser):
+    def error(self, message):
+        raise ParsingError(message)
 
 # Check if the message contains valid link and process if it does
 async def check_message(message, allow_copies=True, silent=False):
@@ -546,9 +555,31 @@ def format_members_list(poster_stats, sorting_order):
 
 # Load messages and update message stats (all/daily)
 @client.command()
-async def update_stats(ctx, mode):
-    await update_message_stats(mode, ctx.channel.id)
-    if mode == 'all':
+async def update_stats(ctx, *, args=''):
+    logger.info('Got update_stats command')
+    if ctx.author.id not in bot_admins:
+        logger.info(f'{ctx.author.id} is not an admin, rejected update_stats command')
+
+    parser = ArgumentParser()
+    parser.add_argument('-c', '--channel', choices=['this', 'archive'], default='this')
+    parser.add_argument('-m', '--mode', choices=['all', 'yesterday', 'today'], default='all')
+    try:
+        args = parser.parse_args(args.split())
+    except ParsingError as e:
+        logger.error(f'Unable to parse args for update_stats command: {e}')
+        await ctx.send(e)
+        return
+
+    if args.channel == 'this':
+        channel_id = ctx.channel.id
+    elif args.channel == 'archive':
+        channel_id = archive_channel_id
+    else:
+        logger.error(f'Unrecognized channel: {args.channel}')
+        return
+
+    await update_message_stats(args.mode, channel_id)
+    if args.mode == 'all':
         await ctx.send(ok_reply)
 
 async def update_message_stats(mode, channel_id):
@@ -567,6 +598,9 @@ async def update_message_stats(mode, channel_id):
         before = datetime.now()
         after = datetime.combine(date.today(), datetime.min.time()) - timedelta(hours=utc_time_offset)
         await db.wipe_stats_current_day(datetime.date(before))
+    else:
+        logger.error(f'Unrecognized mode: {mode}')
+        return
 
     channel = client.get_channel(channel_id)
     history = await channel.history(limit=limit, after=after, before=before, oldest_first=True).flatten()
