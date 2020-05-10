@@ -207,60 +207,63 @@ class AsyncDB:
             """, (channel_id, date, user_id, post_count))
             await db.commit()
 
-    async def wipe_stats(self):
-        async with self.database as db:
-            cur = await db.execute("""
-                DELETE FROM Statistics;             
-            """)
-            await db.commit()
-            await db.execute("VACUUM")
-
-    async def wipe_stats_current_day(self, date):
+    async def wipe_stats(self, channel_id):
         async with self.database as db:
             cur = await db.execute("""
                 DELETE FROM Statistics
-                WHERE date = ?;             
-            """, (date,))
+                WHERE channel_id = ?;             
+            """, (channel_id, ))
             await db.commit()
             await db.execute("VACUUM")
 
-    async def check_stat_pk(self, date, user_id):
+    async def wipe_stats_current_day(self, channel_id, date):
+        async with self.database as db:
+            cur = await db.execute("""
+                DELETE FROM Statistics
+                WHERE channel_id = ? and date = ?;             
+            """, (channel_id, date))
+            await db.commit()
+            await db.execute("VACUUM")
+
+    async def check_stat_pk(self, channel_id, date, user_id):
         async with self.database as db:
             cur = await db.execute("""
                 SELECT date, user_id
                 FROM Statistics
-                WHERE date = ? AND user_id = ?;
-            """, (date, user_id))
+                WHERE channel_id = ? AND date = ? AND user_id = ?;
+            """, (channel_id, date, user_id))
             result = await cur.fetchall()
         return result
 
-    async def check_stat_lastdate(self):
+    async def check_stat_lastdate(self, channel_id):
         async with self.database as db:
             cur = await db.execute("""
                 SELECT MAX(date)
-                FROM Statistics;
-            """)
+                FROM Statistics
+                WHERE channel_id = ?;
+            """, (channel_id, ))
             result = await cur.fetchall()
         if result:
             return result[0][0]
 
-    async def check_stat_firstdate(self):
+    async def check_stat_firstdate(self, channel_id):
         async with self.database as db:
             cur = await db.execute("""
                 SELECT MIN(date)
-                FROM Statistics;
-            """)
+                FROM Statistics
+                WHERE channel_id = ?;
+            """, (channel_id, ))
             result = await cur.fetchall()
         if result:
             return result[0][0]
 
-    async def get_stats(self, date_from, date_to):
+    async def get_stats(self, channel_id,  date_from, date_to):
         async with self.database as db:
             cur = await db.execute("""
                 SELECT user_id, sum(post_count)
                 FROM Statistics
-                WHERE date between date(?) AND date(?)
+                WHERE channel_id = ? AND date between date(?) AND date(?)
                 GROUP by user_id;
-            """, (date_from, date_to))
+            """, (channel_id, date_from, date_to))
             result = await cur.fetchall()
         return result

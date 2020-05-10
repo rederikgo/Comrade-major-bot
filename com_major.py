@@ -277,7 +277,7 @@ async def get_tags_lastfm():
 
 
 # Load custom help file 'help.txt'
-class custom_help(HelpCommand):
+class CustomHelp(HelpCommand):
     async def send_bot_help(self, mapping):
         logger.info('Got help command')
         try:
@@ -349,7 +349,7 @@ birthday_report_time = cfg['database']['birthday_report_time']
 check_frequency = cfg['database']['check_frequency']
 lastfm_token = cfg['lastfm']['token']
 
-helpme = custom_help()
+helpme = CustomHelp()
 client = commands.Bot(command_prefix=command_prefix, help_command=helpme)
 db = AsyncDB(db_path, db_init_script)
 
@@ -481,7 +481,7 @@ async def report(ctx, target='this', depth='all'):
             date_from = datetime.min.date()
         date_to = date.today()
 
-        stats = await db.get_stats(date_from, date_to)
+        stats = await db.get_stats(this_channel.id, date_from, date_to)
         stats = dict(stats)
 
         active_members = [member.id for member in this_channel.members]
@@ -501,7 +501,7 @@ async def report(ctx, target='this', depth='all'):
         else:
             channel_type = 'unwatched'
 
-        first_message_date = await db.check_stat_firstdate()
+        first_message_date = await db.check_stat_firstdate(this_channel.id)
         if depth == '3m':
             days_alive = 90
         elif depth == '1m':
@@ -584,7 +584,7 @@ async def update_stats(ctx, *, args=''):
 
 async def update_message_stats(mode, channel_id):
     if mode == 'all':
-        await db.wipe_stats()
+        await db.wipe_stats(channel_id)
         limit = None
         before = None
         after = None
@@ -592,12 +592,12 @@ async def update_message_stats(mode, channel_id):
         limit = 5000
         before = datetime.combine(date.today(), datetime.min.time()) - timedelta(hours=utc_time_offset)
         after = before - timedelta(days=1)
-        await db.wipe_stats_current_day(datetime.date(before))
+        await db.wipe_stats_current_day(channel_id, datetime.date(before))
     elif mode == 'today':
         limit = 5000
         before = datetime.now()
         after = datetime.combine(date.today(), datetime.min.time()) - timedelta(hours=utc_time_offset)
-        await db.wipe_stats_current_day(datetime.date(before))
+        await db.wipe_stats_current_day(channel_id, datetime.date(before))
     else:
         logger.error(f'Unrecognized mode: {mode}')
         return
@@ -626,13 +626,13 @@ async def update_message_stats(mode, channel_id):
 async def commit_daily_stats(stats, date_pointer, channel_id):
     if not stats:
         return
-    if date_pointer == await db.check_stat_lastdate():
+    if date_pointer == await db.check_stat_lastdate(channel_id):
         logger.error(f'The date {date_pointer} has been already reported, terminated the update')
     members = await db.get_members()
     for key in stats:
         if key not in members:
             await db.add_member(key)
-        if not await db.check_stat_pk(date_pointer, key):
+        if not await db.check_stat_pk(channel_id, date_pointer, key):
             await db.add_stat(channel_id, datetime.strftime(date_pointer, "%Y-%m-%d"), key, stats[key])
         else:
             logger.error(f"Failed to write duplicate stat for {date_pointer} - {key}")
