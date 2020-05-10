@@ -1,6 +1,7 @@
 from collections import Counter
 from datetime import timedelta
 from datetime import datetime
+from datetime import date
 import asyncio
 import logging
 import logging.handlers
@@ -384,8 +385,8 @@ async def archive(ctx, depth=0, starting_from=0, mode=''):
     else:
         depth = int(depth)
     ctx_history = await ctx.history(limit=depth, oldest_first=True).flatten()
-    ctx_history_filtered = [message for message in ctx_history if message.id > starting_from]
-    logger.debug(f'Loaded {len(ctx_history_filtered)} historic messages from context channel')
+    ctx_history = [message for message in ctx_history if message.id > starting_from]
+    logger.debug(f'Loaded {len(ctx_history)} historic messages from context channel')
 
     # Check all messages in channel and archive music videos which are not in the archive
     silent = False
@@ -432,8 +433,9 @@ async def force(ctx, depth):
 
 # Post simple report (total links in archive and user contribution)
 @client.command()
-async def report(ctx, target='this', sorting_order='count'):
+async def report(ctx, target='this', depth='all'):
     logger.info('Got archive report command')
+    sorting_order = 'count'
 
     # !!!Rewrite to check from the db!!!
     if target == 'archive':
@@ -459,29 +461,51 @@ async def report(ctx, target='this', sorting_order='count'):
         await ctx.send(report_string)
 
     elif target == 'this':
-        messages = await ctx.channel.history(limit=archive_depth).flatten()
-        active_members = [member.id for member in ctx.channel.members]
-        posters = []
-        for message in messages:
-            if message.author != client.user:
-                if message.author.id in active_members:
-                    posters.append(message.author.display_name)
-                else:
-                    posters.append('Inactive members')
+        this_channel = ctx.channel
+        await update_message_stats('today', this_channel.id)
+
+        if depth == '3m':
+            date_from = date.today() - timedelta(days=90)
+        elif depth == '1m':
+            date_from = date.today() - timedelta(days=30)
+        else:
+            date_from = datetime.min.date()
+        date_to = date.today()
+
+        stats = await db.get_stats(date_from, date_to)
+        stats = dict(stats)
+
+        active_members = [member.id for member in this_channel.members]
+        posters = {}
+        total_messages = 0
+        inactive_member_messages = 0
+        for key in stats:
+            total_messages += stats[key]
+            if key in active_members:
+                posters[client.get_user(key).display_name] = stats[key]
+            else:
+                inactive_member_messages += stats[key]
+        posters['Inactive members'] = inactive_member_messages
 
         if ctx.channel.id in discord_watched_channels:
             channel_type = 'watched'
         else:
             channel_type = 'unwatched'
-        alive_delta = datetime.now() - messages[-1].created_at
-        days_alive = alive_delta.days + alive_delta.seconds / 60 / 60 / 24
-        average_messages = round(len(messages) / days_alive, 2)
+
+        first_message_date = await db.check_stat_firstdate()
+        if depth == '3m':
+            days_alive = 90
+        elif depth == '1m':
+            days_alive = 30
+        else:
+            days_alive = (date.today() - datetime.strptime(first_message_date, "%Y-%m-%d").date()).days
+        average_messages = round(total_messages / days_alive, 2)
 
         report = ['```']
         report.append(f'Current channel report:')
         report.append('')
         report.append(f'Created {int(days_alive)} days ago')
-        report.append(f'Total messages: {len(posters)}')
+        report.append(f'Total messages: {total_messages}')
         report.append(f'Average messages per day: {average_messages}')
         report.append(f'Channel type: {channel_type}')
         report.append('')
@@ -493,9 +517,8 @@ async def report(ctx, target='this', sorting_order='count'):
 
 
 # Get formatted and sorted list of posters for the report
-def format_members_list(posters, sorting_order):
+def format_members_list(poster_stats, sorting_order):
     # Count post for each poster, calculate some figures for formatting
-    poster_stats = Counter(posters)
     max_value = max(poster_stats.values())
     longest_name = max([len(x) for x in poster_stats.keys()])
     step = int(max_value / max_pips) + 1
@@ -521,12 +544,69 @@ def format_members_list(posters, sorting_order):
         report.append(f'{poster_name}:{" " * spaces} {"-" * pips} {poster_message_count}')
     return report
 
+# Load messages and update message stats (all/daily)
+@client.command()
+async def update_stats(ctx, mode):
+    await update_message_stats(mode, ctx.channel.id)
+    if mode == 'all':
+        await ctx.send(ok_reply)
+
+async def update_message_stats(mode, channel_id):
+    if mode == 'all':
+        await db.wipe_stats()
+        limit = None
+        before = None
+        after = None
+    elif mode == 'yesterday':
+        limit = 5000
+        before = datetime.combine(date.today(), datetime.min.time()) - timedelta(hours=utc_time_offset)
+        after = before - timedelta(days=1)
+        await db.wipe_stats_current_day(datetime.date(before))
+    elif mode == 'today':
+        limit = 5000
+        before = datetime.now()
+        after = datetime.combine(date.today(), datetime.min.time()) - timedelta(hours=utc_time_offset)
+        await db.wipe_stats_current_day(datetime.date(before))
+
+    channel = client.get_channel(channel_id)
+    history = await channel.history(limit=limit, after=after, before=before, oldest_first=True).flatten()
+
+    date_pointer = datetime.min.date()
+    stats = {}
+    for message in history:
+        if message.author.id == client.user.id:
+            continue
+        message_date = datetime.date(message.created_at + timedelta(hours=utc_time_offset))
+        if message_date != date_pointer:
+            await commit_daily_stats(stats, date_pointer, channel_id)
+            stats.clear()
+            date_pointer = message_date
+        if message.author.id not in stats:
+            stats[message.author.id] = 1
+        else:
+            stats[message.author.id] += 1
+    await commit_daily_stats(stats, date_pointer, channel_id)
+    logger.debug(f'Database update complete. Mode: {mode}')
+
+# Send message stats to the database
+async def commit_daily_stats(stats, date_pointer, channel_id):
+    if not stats:
+        return
+    if date_pointer == await db.check_stat_lastdate():
+        logger.error(f'The date {date_pointer} has been already reported, terminated the update')
+    members = await db.get_members()
+    for key in stats:
+        if key not in members:
+            await db.add_member(key)
+        if not await db.check_stat_pk(date_pointer, key):
+            await db.add_stat(channel_id, datetime.strftime(date_pointer, "%Y-%m-%d"), key, stats[key])
+        else:
+            logger.error(f"Failed to write duplicate stat for {date_pointer} - {key}")
 
 # Lots of fun!
 @client.command()
 async def slap(ctx, target):
     await ctx.send(f'{ctx.author.mention} slaps {target} around a bit with a large trout')
-
 
 # Check for birthdays and congratulate member
 async def report_birthdays():
