@@ -44,12 +44,12 @@ class AsyncDB:
         self.logger = logging.getLogger("comrade")
         self.database = DBConnection(db_path, init_script)
 
-    async def add_member(self, id):
+    async def add_member(self, member_id):
         async with self.database as db:
             await db.execute("""
                 INSERT INTO Members (id, birthday)
                 VALUES (?, NULL);
-            """, (id,))
+            """, (member_id,))
             await db.commit()
 
     async def get_members(self):
@@ -109,22 +109,22 @@ class AsyncDB:
         return last_row
 
     # Temp, for old videos
-    async def update_video_title(self, id, video_title=''):
+    async def update_video_title(self, video_id, video_title=''):
         async with self.database as db:
-            cur = await db.execute("""
+            await db.execute("""
                 UPDATE Videos
                 SET video_title = ?
                 WHERE id = ?;
-            """, (video_title, id))
+            """, (video_title, video_id))
             await db.commit()
 
-    async def enrich_video(self, id, artist, title):
+    async def enrich_video(self, video_id, artist, title):
         async with self.database as db:
             await db.execute("""
                 UPDATE Videos
                 SET artist = ?, title = ?
                 WHERE id = ?;
-            """, (artist, title, id))
+            """, (artist, title, video_id))
             await db.commit()
 
     async def get_videos(self):
@@ -183,7 +183,7 @@ class AsyncDB:
 
     async def add_tag(self, video_id, tag):
         async with self.database as db:
-            cur = await db.execute("""
+            await db.execute("""
                 INSERT INTO Tags(video_id, tag)
                 VALUES (?, ?);             
             """, (video_id, tag))
@@ -201,7 +201,7 @@ class AsyncDB:
 
     async def add_stat(self, channel_id, date, user_id, post_count):
         async with self.database as db:
-            cur = await db.execute("""
+            await db.execute("""
                 INSERT INTO Statistics(channel_id, date, user_id, post_count)
                 VALUES (?, ?, ?, ?);             
             """, (channel_id, date, user_id, post_count))
@@ -209,7 +209,7 @@ class AsyncDB:
 
     async def wipe_stats(self, channel_id):
         async with self.database as db:
-            cur = await db.execute("""
+            await db.execute("""
                 DELETE FROM Statistics
                 WHERE channel_id = ?;             
             """, (channel_id, ))
@@ -218,7 +218,7 @@ class AsyncDB:
 
     async def wipe_stats_current_day(self, channel_id, date):
         async with self.database as db:
-            cur = await db.execute("""
+            await db.execute("""
                 DELETE FROM Statistics
                 WHERE channel_id = ? and date = ?;             
             """, (channel_id, date))

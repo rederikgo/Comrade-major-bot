@@ -49,7 +49,6 @@ async def check_message(message, allow_copies=True, silent=False):
 
         # Check if youtube category is eligible
         video_title = ''
-        video_category = ''
         if provider == 'youtube':
             video_info = get_youtube_video_info(video_id)
             try:
@@ -117,7 +116,7 @@ def clean_link(link, provider):
 
 
 # Add video to the database and copy to archive channel
-async def archive_video(message, link, video_title, silent=False):
+async def archive_video(message, link, video_title='', silent=False):
     video_id = await db.get_video_by_link(link)
     if not video_id:
         video_id = await db.add_video(link, video_title)
@@ -184,7 +183,6 @@ async def process_archive_channel_posting(message):
 async def update_video_titles():
     videos = await db.get_videos()
     for video in videos:
-        id = video[0]
         link = video[1]
         video_title = video[2]
 
@@ -197,7 +195,7 @@ async def update_video_titles():
             video_info = get_youtube_video_info(video_id)
             try:
                 video_title = video_info['items'][0]['snippet']['title']
-                await db.update_video_title(id, video_title)
+                await db.update_video_title(video_id, video_title)
             except:
                 logger.warning(f'No title for video {link}')
 
@@ -212,7 +210,7 @@ async def guess_artist():
 
     videos = await db.get_videos()
     for video in videos:
-        id = video[0]
+        video_id = video[0]
         link = video[1]
         video_title = video[2]
         artist = video[3]
@@ -246,7 +244,7 @@ async def guess_artist():
             continue
 
         # Update database finally
-        await db.enrich_video(id, artist, title)
+        await db.enrich_video(video_id, artist, title)
         logger.debug(f'Enriched {link} as {artist} - {title}')
 
 
@@ -455,6 +453,7 @@ async def report(ctx, target='this', depth='all'):
             if message.author == client.user and not is_link(message.content):
                 poster = message.content.split()[0]
                 posters.append(poster)
+        posters = dict(posters)
         alive_delta = datetime.now() - archive_messages[-1].created_at
 
         report = ['```']
