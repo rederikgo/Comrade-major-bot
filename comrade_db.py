@@ -199,6 +199,28 @@ class AsyncDB:
             result = await cur.fetchall()
         return result
 
+    async def check_archive_stats_firstdate(self, archive_channel_id):
+        async with self.database as db:
+            cur = await db.execute("""
+                SELECT date(MIN(date_posted))
+                FROM Posted
+                WHERE archive_channel = ?;
+            """, (archive_channel_id,))
+            result = await cur.fetchall()
+        if result:
+            return result[0][0]
+
+    async def get_archive_stats(self, archive_channel_id, date_from, date_to):
+        async with self.database as db:
+            cur = await db.execute("""
+                SELECT user_id, count(id)
+                FROM Posted
+                WHERE archive_channel = ? AND date(date_posted) BETWEEN date(?) AND date(?)
+                GROUP by user_id;
+            """, (archive_channel_id, date_from, date_to))
+            result = await cur.fetchall()
+        return result
+
     async def add_stat(self, channel_id, date, user_id, post_count):
         async with self.database as db:
             await db.execute("""

@@ -438,94 +438,92 @@ async def force(ctx, depth):
             await archive_video(message, link)
 
 
-# Post simple report (total links in archive and user contribution)
+# Post simple report (number of links in archive per user or number of posts in current watched channel per user)
 @client.command()
-async def report(ctx, target='this', depth='all'):
-    logger.info('Got archive report command')
-    sorting_order = 'count'
+async def report(ctx, *, args=''):
+    logger.info('Got report command')
 
-    # !!!Rewrite to check from the db!!!
-    if target == 'archive':
-        archive_channel = client.get_channel(archive_channel_id)
-        archive_messages = await archive_channel.history(limit=archive_depth).flatten()
-        posters = []
-        for message in archive_messages:
-            if message.author == client.user and not is_link(message.content):
-                poster = message.content.split()[0]
-                posters.append(poster)
-        posters = dict(posters)
-        alive_delta = datetime.now() - archive_messages[-1].created_at
+    parser = ArgumentParser()
+    parser.add_argument('-c', '--channel', choices=['this', 'archive'], default='this')
+    parser.add_argument('-d', '--depth', type=int, default=0)
+    parser.add_argument('-s', '--sort', choices=['name', 'count'], default='count')
+    try:
+        args = parser.parse_args(args.split())
+    except ParsingError as e:
+        logger.error(f'Unable to parse args for report command: {e}')
+        await ctx.send(e)
+        return
 
-        report = ['```']
-        report.append('Archive channel report:')
-        report.append('')
-        report.append(f'Created {alive_delta.days} days ago')
-        report.append(f'Total messages: {len(posters)}')
-        report.append('')
-        report.append('Posters:')
-        report += format_members_list(posters, sorting_order)
-        report.append('```')
-        report_string = '\n'.join(report)
-        await ctx.send(report_string)
+    if args.depth == 0:
+        date_from = datetime.min.date()
+    else:
+        date_from = date.today() - timedelta(days=args.depth)
+    date_to = date.today()
 
-    elif target == 'this':
-        this_channel = ctx.channel
-        await update_message_stats('today', this_channel.id)
-
-        if depth == '3m':
-            date_from = date.today() - timedelta(days=90)
-        elif depth == '1m':
-            date_from = date.today() - timedelta(days=30)
-        else:
-            date_from = datetime.min.date()
-        date_to = date.today()
-
-        stats = await db.get_stats(this_channel.id, date_from, date_to)
-        stats = dict(stats)
-
-        active_members = [member.id for member in this_channel.members]
-        posters = {}
-        total_messages = 0
-        inactive_member_messages = 0
-        for key in stats:
-            total_messages += stats[key]
-            if key in active_members:
-                posters[client.get_user(key).display_name] = stats[key]
-            else:
-                inactive_member_messages += stats[key]
-        posters['Inactive members'] = inactive_member_messages
+    # Switch data based on report type
+    if args.channel == 'this':
+        await update_message_stats('today', ctx.channel.id)
+        stats = await db.get_stats(ctx.channel.id, date_from, date_to)
+        first_message_date = await db.check_stat_firstdate(ctx.channel.id)
 
         if ctx.channel.id in discord_watched_channels:
             channel_type = 'watched'
         else:
             channel_type = 'unwatched'
+        report_title = 'Current channel report'
+    elif args.channel == 'archive':
+        stats = await db.get_archive_stats(archive_channel_id, date_from, date_to)
+        first_message_date = await db.check_archive_stats_firstdate(archive_channel_id)
 
-        first_message_date = await db.check_stat_firstdate(this_channel.id)
-        if depth == '3m':
-            days_alive = 90
-        elif depth == '1m':
-            days_alive = 30
+        channel_type = 'archive'
+        report_title = 'Archive channel report'
+    else:
+        logger.error(f'Unrecognized channel: {args.channel}')
+        return
+
+    active_members = [member.id for member in ctx.channel.members]
+    posters = {}
+    total_messages = 0
+    inactive_member_messages = 0
+    stats = dict(stats)
+    for key in stats:
+        total_messages += stats[key]
+        if key in active_members:
+            posters[client.get_user(key).display_name] = stats[key]
         else:
-            days_alive = (date.today() - datetime.strptime(first_message_date, "%Y-%m-%d").date()).days
-        average_messages = round(total_messages / days_alive, 2)
+            inactive_member_messages += stats[key]
+    posters['Inactive members'] = inactive_member_messages
 
-        report = ['```']
-        report.append(f'Current channel report:')
-        report.append('')
-        report.append(f'Created {int(days_alive)} days ago')
-        report.append(f'Total messages: {total_messages}')
-        report.append(f'Average messages per day: {average_messages}')
-        report.append(f'Channel type: {channel_type}')
-        report.append('')
-        report.append('Posters:')
-        report += format_members_list(posters, sorting_order)
-        report.append('```')
-        report_string = '\n'.join(report)
-        await ctx.send(report_string)
+    days_alive = (date.today() - datetime.strptime(first_message_date, "%Y-%m-%d").date()).days
+    if args.depth != 0 and args.depth <= days_alive:
+        report_period = args.depth
+    else:
+        report_period = days_alive
+
+    average_messages = round(total_messages / report_period, 2)
+
+    if args.depth == 0:
+        report_title = report_title + ':'
+    else:
+        report_title = report_title + f' ({args.depth} days):'
+
+    report = ['```']
+    report.append(report_title)
+    report.append('')
+    report.append(f'Created {int(days_alive)} days ago')
+    report.append(f'Channel type: {channel_type}')
+    report.append(f'Total messages: {total_messages}')
+    report.append(f'Average messages per day: {average_messages}')
+    report.append('')
+    report.append('Posters:')
+    report += format_members_list(posters, args.sort)
+    report.append('```')
+    report_string = '\n'.join(report)
+    await ctx.send(report_string)
 
 
 # Get formatted and sorted list of posters for the report
-def format_members_list(poster_stats, sorting_order):
+def format_members_list(poster_stats, sorting_field):
     # Count post for each poster, calculate some figures for formatting
     max_value = max(poster_stats.values())
     longest_name = max([len(x) for x in poster_stats.keys()])
@@ -535,9 +533,9 @@ def format_members_list(poster_stats, sorting_order):
     poster_stats_list = []
     for key in poster_stats:
         poster_stats_list.append([key, poster_stats[key]])
-    if sorting_order == 'name':
+    if sorting_field == 'name':
         poster_stats_list.sort(key=lambda x: x[0].lower())
-    elif sorting_order == 'count':
+    elif sorting_field == 'count':
         poster_stats_list.sort(key=lambda x: x[1], reverse=True)
     else:
         logging.error('Unsupported sorting order')
