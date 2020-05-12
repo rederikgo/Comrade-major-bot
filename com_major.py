@@ -786,6 +786,21 @@ async def show_birthdays(ctx, sorting_key='name'):
     reply_string = '\n'.join(reply)
     await ctx.send(reply_string)
 
+# Update memeber names once a day
+async def update_member_names():
+    await client.wait_until_ready()
+    while not client.is_closed():
+        members = await db.get_members()
+        for member_id in members:
+            try:
+                member = await client.fetch_user(member_id)
+                await db.update_name(member_id, member.display_name)
+            except:
+                # For dead bots in the chat...
+                pass
+        logger.info('Daily update of member names completed')
+
+        await asyncio.sleep(check_frequency*24)
 
 @client.command()
 async def update_titles(ctx):
@@ -806,6 +821,7 @@ async def get_tags(ctx):
 try:
     client.loop.create_task(report_birthdays())
     client.loop.create_task(update_stats_daily())
+    client.loop.create_task(update_member_names())
     client.run(discord_token)
 except:
     logger.error('Failed to init discord bot')

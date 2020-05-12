@@ -70,6 +70,16 @@ class AsyncDB:
             """, (birthday, member_id))
             await db.commit()
 
+    async def update_name(self, member_id, name):
+        async with self.database as db:
+            await db.execute("""
+                UPDATE Members 
+                SET name = ?
+                WHERE id = ?
+            """, (name, member_id))
+            await db.commit()
+
+
     async def get_birthdays(self):
         async with self.database as db:
             cur = await db.execute("""
