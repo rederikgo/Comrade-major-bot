@@ -629,7 +629,7 @@ async def update_message_stats(mode, channel_id):
     await commit_daily_stats(stats, date_pointer, channel_id)
 
     if mode in ('all', 'today'):
-        flag_value = (datetime.now() - timedelta(hours=utc_time_offset) - timedelta(days=1)).date()
+        flag_value = (datetime.now() + timedelta(hours=utc_time_offset) - timedelta(days=1)).date()
     else:
         flag_value = before.date()
     if await db.get_flag('last_stat_update', channel_id):
