@@ -657,6 +657,7 @@ async def commit_daily_stats(stats, date_pointer, channel_id):
 # Update stats daily
 async def update_stats_daily():
     await client.wait_until_ready()
+    db = AsyncDB(db_path, db_init_script)
     while not client.is_closed():
         for watched_channel in discord_watched_channels:
             current_date = (datetime.now() + timedelta(hours=3)).date()
@@ -682,6 +683,7 @@ async def slap(ctx, target):
 # Check for birthdays and congratulate member
 async def report_birthdays():
     await client.wait_until_ready()
+    db = AsyncDB(db_path, db_init_script)
     while not client.is_closed():
         for watched_channel in discord_watched_channels:
             channel = client.get_channel(watched_channel)
@@ -789,6 +791,7 @@ async def show_birthdays(ctx, sorting_key='name'):
 # Update memeber names once a day
 async def update_member_names():
     await client.wait_until_ready()
+    db = AsyncDB(db_path, db_init_script)
     while not client.is_closed():
         members = await db.get_members()
         for member_id in members:
