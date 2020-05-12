@@ -550,7 +550,7 @@ def format_members_list(poster_stats, sorting_field):
         report.append(f'{poster_name}:{" " * spaces} {"-" * pips} {poster_message_count}')
     return report
 
-# Load messages and update message stats (all/daily)
+# Load messages and update message stats (all/today/specific date)
 @client.command()
 async def update_stats(ctx, *, args=''):
     logger.info('Got update_stats command')
@@ -558,8 +558,8 @@ async def update_stats(ctx, *, args=''):
         logger.info(f'{ctx.author.id} is not an admin, rejected update_stats command')
 
     parser = ArgumentParser()
-    parser.add_argument('-c', '--channel', choices=['this', 'archive'], default='this')
-    parser.add_argument('-m', '--mode', choices=['all', 'yesterday', 'today'], default='all')
+    parser.add_argument('-c', '--channel', default='this')
+    parser.add_argument('-m', '--mode', default='all')
     try:
         args = parser.parse_args(args.split())
     except ParsingError as e:
@@ -569,11 +569,19 @@ async def update_stats(ctx, *, args=''):
 
     if args.channel == 'this':
         channel_id = ctx.channel.id
-    elif args.channel == 'archive':
-        channel_id = archive_channel_id
     else:
-        logger.error(f'Unrecognized channel: {args.channel}')
-        return
+        if isinstance(args.channel, int):
+            try:
+                client.get_channel(args.channel)
+            except:
+                logger.error(f'Cant get channel {args.channel} in update_stats command')
+                await ctx.send(f'Cant get channel {args.channel}')
+                return
+            channel_id = args.channel
+        else:
+            logger.error(f'Invalid channel id {args.channel} in update_stats command')
+            await ctx.send(f'Invalid channel id {args.channel}')
+            return
 
     await update_message_stats(args.mode, channel_id)
     if args.mode == 'all':
@@ -581,23 +589,25 @@ async def update_stats(ctx, *, args=''):
 
 async def update_message_stats(mode, channel_id):
     if mode == 'all':
-        await db.wipe_stats(channel_id)
         limit = None
         before = None
         after = None
-    elif mode == 'yesterday':
-        limit = 5000
-        before = datetime.combine(date.today(), datetime.min.time()) - timedelta(hours=utc_time_offset)
-        after = before - timedelta(days=1)
-        await db.wipe_stats_current_day(channel_id, datetime.date(before))
+        await db.wipe_stats(channel_id)
     elif mode == 'today':
         limit = 5000
-        before = datetime.now()
+        before = datetime.now() - timedelta(utc_time_offset)
         after = datetime.combine(date.today(), datetime.min.time()) - timedelta(hours=utc_time_offset)
+        logger.debug(f'Update mode "today". From {after.strftime("%Y-%m-%d %H:%M")} to {before.strftime("%Y-%m-%d %H:%M")}')
         await db.wipe_stats_current_day(channel_id, datetime.date(before))
     else:
-        logger.error(f'Unrecognized mode: {mode}')
-        return
+        if not isinstance(mode, date):
+            logger.error(f'Unrecognized mode: {mode}')
+            return
+        limit = 5000
+        before = datetime.combine(mode, datetime.max.time()) - timedelta(hours=utc_time_offset)
+        after = before - timedelta(days=1)
+        logger.debug(f'Update mode {mode}. From {after.strftime("%Y-%m-%d %H:%M")} to {before.strftime("%Y-%m-%d %H:%M")}')
+        await db.wipe_stats_current_day(channel_id, datetime.date(before))
 
     channel = client.get_channel(channel_id)
     history = await channel.history(limit=limit, after=after, before=before, oldest_first=True).flatten()
@@ -617,6 +627,16 @@ async def update_message_stats(mode, channel_id):
         else:
             stats[message.author.id] += 1
     await commit_daily_stats(stats, date_pointer, channel_id)
+
+    if mode in ('all', 'today'):
+        flag_value = (datetime.now() - timedelta(hours=utc_time_offset) - timedelta(days=1)).date()
+    else:
+        flag_value = before.date()
+    if await db.get_flag('last_stat_update', channel_id):
+        await db.update_flag('last_stat_update', channel_id, flag_value)
+    else:
+        await db.add_flag('last_stat_update', channel_id, flag_value)
+
     logger.debug(f'Database update complete. Mode: {mode}')
 
 # Send message stats to the database
@@ -633,6 +653,26 @@ async def commit_daily_stats(stats, date_pointer, channel_id):
             await db.add_stat(channel_id, datetime.strftime(date_pointer, "%Y-%m-%d"), key, stats[key])
         else:
             logger.error(f"Failed to write duplicate stat for {date_pointer} - {key}")
+
+# Update stats daily
+async def update_stats_daily():
+    await client.wait_until_ready()
+    while not client.is_closed():
+        for watched_channel in discord_watched_channels:
+            current_date = (datetime.now() + timedelta(hours=3)).date()
+            last_stat_update = await db.get_flag('last_stat_update', watched_channel)
+
+            if last_stat_update:
+                last_stat_update_date = datetime.strptime(last_stat_update, "%Y-%m-%d").date()
+                date_difference = current_date - last_stat_update_date
+                iterdates = (last_stat_update_date + timedelta(n + 1) for n in range(date_difference.days - 1))
+                for date_to_update in iterdates:
+                    await update_message_stats(date_to_update, watched_channel)
+            else:
+                logger.info('Cant find "last_stat_update" flag. Updating usin "all" mode')
+                await update_message_stats('all', watched_channel)
+
+        await asyncio.sleep(check_frequency)
 
 # Lots of fun!
 @client.command()
@@ -765,6 +805,7 @@ async def get_tags(ctx):
 # WRYYYYY
 try:
     client.loop.create_task(report_birthdays())
+    client.loop.create_task(update_stats_daily())
     client.run(discord_token)
 except:
     logger.error('Failed to init discord bot')

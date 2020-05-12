@@ -289,3 +289,31 @@ class AsyncDB:
             """, (channel_id, date_from, date_to))
             result = await cur.fetchall()
         return result
+
+    async def add_flag(self, flag_name, channel_id, flag_value=''):
+        async with self.database as db:
+            await db.execute("""
+                INSERT INTO Flags(flag_name, channel_id, flag_value)
+                VALUES (?, ?, ?);             
+            """, (flag_name, channel_id, flag_value))
+            await db.commit()
+
+    async def update_flag(self, flag_name, channel_id, flag_value):
+        async with self.database as db:
+            await db.execute("""
+                UPDATE Flags
+                SET flag_value = ?
+                WHERE flag_name = ? AND channel_id = ?;
+            """, (flag_value, flag_name, channel_id))
+            await db.commit()
+
+    async def get_flag(self, flag_name, channel_id):
+        async with self.database as db:
+            cur = await db.execute("""
+                SELECT flag_value
+                FROM Flags
+                WHERE flag_name = ? AND channel_id = ?;
+            """, (flag_name, channel_id))
+            result = await cur.fetchall()
+        if result:
+            return result[0][0]
