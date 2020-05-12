@@ -595,8 +595,8 @@ async def update_message_stats(mode, channel_id):
         await db.wipe_stats(channel_id)
     elif mode == 'today':
         limit = 5000
-        before = datetime.now() - timedelta(utc_time_offset)
-        after = datetime.combine(date.today(), datetime.min.time()) - timedelta(hours=utc_time_offset)
+        before = datetime.now()
+        after = datetime.combine(date.today(), datetime.max.time()) - timedelta(hours=utc_time_offset)
         logger.debug(f'Update mode "today". From {after.strftime("%Y-%m-%d %H:%M")} to {before.strftime("%Y-%m-%d %H:%M")}')
         await db.wipe_stats_current_day(channel_id, datetime.date(before))
     else:
