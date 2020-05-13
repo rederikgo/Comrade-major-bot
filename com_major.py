@@ -284,7 +284,9 @@ class CustomHelp(HelpCommand):
         except:
             logger.error('Error opening help file')
 
-        await self.context.send(help_text)
+        help_parts = help_text.split('<break>')
+        for part in help_parts:
+            await self.context.send(part)
 
 
 # MAIN
