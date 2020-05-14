@@ -386,23 +386,30 @@ async def on_message(message):
 
 # Scan X last messages and archive eligible, which have not been archived before
 @client.command()
-async def archive(ctx, depth=0, starting_from=0, mode=''):
+async def archive(ctx, *, args=''):
     # Get channel history
     logger.debug('Got archive command')
-    if depth == 0:
-        depth = None
-    else:
-        depth = int(depth)
-    ctx_history = await ctx.history(limit=depth, oldest_first=True).flatten()
-    ctx_history = [message for message in ctx_history if message.id > starting_from]
+    if ctx.author.id not in bot_admins:
+        logger.info('Not an admin, rejected')
+
+    parser = ArgumentParser()
+    parser.add_argument('-d', '--depth', type=int, default=None)
+    parser.add_argument('-f', '--from_id', type=int, default=0)
+    parser.add_argument('-s', '--silent', type=bool, default=False)
+    try:
+        args = parser.parse_args(args.split())
+    except ParsingError as e:
+        logger.error(f'Unable to parse args for archive command: {e}')
+        await ctx.send(e)
+        return
+
+    ctx_history = await ctx.history(limit=args.depth, oldest_first=True).flatten()
+    ctx_history = [message for message in ctx_history if message.id > args.from_id]
     logger.debug(f'Loaded {len(ctx_history)} historic messages from context channel')
 
     # Check all messages in channel and archive music videos which are not in the archive
-    silent = False
-    if mode.lower() == 'silent':
-        silent = True
     for message in ctx_history:
-        await check_message(message, allow_copies=False, silent=silent)
+        await check_message(message, allow_copies=False, silent=args.silent)
 
     await ctx.send(ok_reply)
 
@@ -424,15 +431,25 @@ async def wipe_archive(ctx):
 
 # Scan last messages and force-archive all urls
 @client.command()
-async def force(ctx, depth):
+async def force(ctx, *, args):
     logger.info('Got force command')
-    if depth == 'last':
-        depth = 1
+
+    parser = ArgumentParser()
+    parser.add_argument('-d', '--depth', type=int, default=None)
+    try:
+        args = parser.parse_args(args.split())
+    except ParsingError as e:
+        logger.error(f'Unable to parse args for force command: {e}')
+        await ctx.send(e)
+        return
+
+    if args.depth == 'last':
+        args.depth = 1
     if ctx.channel.id not in discord_watched_channels:
         logger.info('Channel is not watched, rejected')
         return
 
-    ctx_history = await ctx.history(limit=int(depth)+1).flatten()
+    ctx_history = await ctx.history(limit=int(args.depth) + 1).flatten()
     for message in ctx_history:
         if is_link(message.content):
             link = extract_link(message.content)
@@ -680,6 +697,7 @@ async def update_stats_daily():
 # Lots of fun!
 @client.command()
 async def slap(ctx, target):
+    logger.info('Got slap command')
     await ctx.send(f'{ctx.author.mention} slaps {target} around a bit with a large trout')
 
 # Check for birthdays and congratulate member
@@ -716,6 +734,8 @@ async def congrat(channel, user_id):
 # Set or replace birthday
 @client.command()
 async def set_birthday(ctx):
+    logger.info('Got set_birthday command')
+
     try:
         target_user_id = ctx.message.mentions[0].id
     except:
@@ -757,7 +777,18 @@ def get_user_mention(channel, user_id):
 
 # Send report on stored birthdays sorted by user name
 @client.command()
-async def show_birthdays(ctx, sorting_key='name'):
+async def show_birthdays(ctx, *, args=''):
+    logger.info('Got show_birthdays command')
+
+    parser = ArgumentParser()
+    parser.add_argument('-s', '--sort', choices=['name', 'date'], default='date')
+    try:
+        args = parser.parse_args(args.split())
+    except ParsingError as e:
+        logger.error(f'Unable to parse args for show_birthdays command: {e}')
+        await ctx.send(e)
+        return
+
     # Get the list of current members with birthdays from the database
     birthdays = await db.get_birthdays()
     members_list = [[member.id, member.display_name] for member in ctx.channel.members]
@@ -772,9 +803,9 @@ async def show_birthdays(ctx, sorting_key='name'):
         return
 
     # Sort the list
-    if sorting_key == 'name':
+    if args.sort == 'name':
         eligible_birthdays.sort(key=lambda x: x[0].lower())
-    elif sorting_key == 'date':
+    elif args.sort == 'date':
         eligible_birthdays.sort(key=lambda x: convert_to_structdate(x[1]))
     else:
         logging.error('Unsupported sorting method')
