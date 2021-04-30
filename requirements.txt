@@ -19,7 +19,7 @@ pyasn1-modules==0.2.7
 python-json-logger==0.1.11
 PyYAML==5.2
 requests==2.22.0
-rsa==4.0
+rsa==4.7
 sentry-sdk==0.13.5
 six==1.13.0
 typing-extensions==3.7.4.1
