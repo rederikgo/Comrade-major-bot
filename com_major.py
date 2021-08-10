@@ -271,8 +271,9 @@ async def get_tags_lastfm():
             continue
 
         top_tags = lastfm.check_artist(artist)
-        for tag in top_tags:
-            await db.add_tag(video_id, tag)
+        if top_tags:
+            for tag in top_tags:
+                await db.add_tag(video_id, tag)
 
 
 # Load custom help file 'help.txt'
