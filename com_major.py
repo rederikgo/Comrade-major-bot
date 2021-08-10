@@ -12,6 +12,7 @@ import re
 import time
 import urllib
 
+from discord import Intents
 from discord.ext.commands import HelpCommand
 from discord.ext import commands
 from pythonjsonlogger import jsonlogger
@@ -349,8 +350,11 @@ birthday_report_time = cfg['database']['birthday_report_time']
 check_frequency = cfg['database']['check_frequency']
 lastfm_token = cfg['lastfm']['token']
 
+intents = Intents().default()
+intents.members = True
+
 helpme = CustomHelp()
-client = commands.Bot(command_prefix=command_prefix, help_command=helpme)
+client = commands.Bot(command_prefix=command_prefix, help_command=helpme, intents=intents)
 db = AsyncDB(db_path, db_init_script)
 
 
