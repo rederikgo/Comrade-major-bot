@@ -1,4 +1,4 @@
-FROM python:3.7.3-slim-stretch
+FROM python:3.9.6-slim-buster
 
 RUN python -m pip install --upgrade pip && pip install --upgrade setuptools
 
