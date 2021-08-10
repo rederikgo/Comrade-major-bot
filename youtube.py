@@ -2,7 +2,7 @@ import logging
 
 import httplib2
 from oauth2client.file import Storage
-from apiclient.discovery import build
+from googleapiclient.discovery import build
 from oauth2client.client import flow_from_clientsecrets
 from oauth2client.tools import run_flow
 
